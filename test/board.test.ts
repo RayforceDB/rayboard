@@ -27,6 +27,25 @@ const fails = async (p: Promise<unknown>, code: string): Promise<void> => {
 };
 const inbox = async (a: Actor): Promise<{ type: string; subject: string; text: string }[]> => ((await board.call(a, 'inbox', {})) as { items: never[] }).items;
 
+test('inbox can acknowledge a delivered boundary without consuming a newer note', async () => {
+  const a = (await agent('reader')).actor;
+  const b = (await agent('other')).actor;
+  await board.call(admin, 'create_task', { outcome: 'x', title: 'First', assignee: a.id });
+  const first = (await board.call(a, 'inbox', { peek: true })) as { items: { seq: number }[] };
+  const through = first.items[0]!.seq;
+  await board.call(admin, 'create_task', { outcome: 'x', title: 'Second', assignee: a.id });
+  await board.call(a, 'inbox', { through });
+  await board.call(a, 'inbox', { through });
+  await fails(board.call(a, 'inbox', { through: through + 2 }), 'invalid');
+  await fails(board.call(b, 'inbox', { through }), 'invalid');
+  const later = (await board.call(a, 'inbox', { peek: true })) as { items: { seq: number; text: string }[] };
+  expect(later.items.map(n => n.text)).toEqual(['anton gave you T-2: Second']);
+  board.close(); board = await open();
+  expect(((await board.call(a, 'inbox', { peek: true })) as { items: { seq: number }[] }).items.map(n => n.seq)).toEqual([through + 1]);
+  await board.call(a, 'inbox', { through: through + 1 });
+  expect(await inbox(a)).toEqual([]);
+});
+
 test('a task is delegated, done, reviewed by another and approved', async () => {
   const lead = (await agent('lead')).actor;
   const dev = (await agent('dev')).actor;

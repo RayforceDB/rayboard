@@ -387,8 +387,18 @@ export function openBoard(options: BoardOptions): Board {
       params: {
         wait: { type: 'integer', description: `Seconds to wait when there is nothing yet (0 to ${INBOX_WAIT_MAX}).`, min: 0, max: INBOX_WAIT_MAX },
         peek: { type: 'boolean', description: 'Look without marking anything read.' },
+        through: { type: 'integer', description: 'Acknowledge an already returned seq without consuming newer notifications.', min: 1 },
       },
       async run(actor, p) {
+        const cursor = Number(store.get('cursors', actor.id)?.seq ?? 0);
+        const through = p.through as number | undefined;
+        if (through !== undefined && through <= cursor) return { items: [], more: false };
+        if (through !== undefined) {
+          const delivered = store.ask(`(select {from: notes where: (and (in dest (at rb_q 'q0)) (== seq ${Math.floor(through)}))})`, { str: [actor.id] });
+          if (delivered.length === 0) bad('invalid', 'through must name a notification in your inbox');
+          commit('inbox.read', actor.id, actor.id, '', { cursors: [{ id: actor.id, seq: through }] }, [], true);
+          return { items: [], more: false };
+        }
         const read = (): Row[] => {
           const cursor = Number(store.get('cursors', actor.id)?.seq ?? 0);
           return store.ask(`(select {from: notes where: (and (in dest (at rb_q 'q0)) (> seq ${cursor})) asc: seq take: 100})`, { str: [actor.id] });
