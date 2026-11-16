@@ -1,0 +1,7 @@
+{
+  "linux-x64": {
+    "url": "https://github.com/RayforceDB/rayforce/releases/download/dev-6b852898/rayforce-dev-6b852898-linux-x86_64.tar.gz",
+    "sha256": "fa6f94cdb50b2253e6d673d276bdea3d45602b7798c639afbb904880a5e717c9",
+    "dir": "rayforce-dev-6b852898-linux-x86_64"
+  }
+}
