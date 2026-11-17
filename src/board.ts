@@ -630,7 +630,7 @@ export function openBoard(options: BoardOptions): Board {
         const review = t.status === 'in_review' ? pendingReview(t.id as string) : undefined;
         if (review === undefined) return bad('conflict', `${t.id} is ${t.status} and has no review waiting`);
         if (review.requester === actor.id) bad('forbidden', 'nobody reviews their own work');
-        if (actor.kind !== 'user' && review.reviewer !== '' && review.reviewer !== actor.id) bad('forbidden', `this review was asked of ${names().get(review.reviewer as string) ?? 'someone else'}`);
+        if (review.reviewer !== '' && review.reviewer !== actor.id) bad('forbidden', `this review was asked of ${names().get(review.reviewer as string) ?? 'someone else'}`);
         const approve = p.verdict === 'approve';
         const comment = (p.comment as string | undefined) ?? '';
         if (!approve && comment.trim() === '') bad('invalid', 'say in `comment` what has to change');
