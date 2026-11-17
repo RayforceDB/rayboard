@@ -149,3 +149,18 @@ test('a hidden private task looks like a missing one on every path for an outsid
   expect(everything).not.toContain('SECRET');
   expect(await code(board.call(out, 'report_cost', { usd: -1 }))).toBe('invalid');
 });
+
+test('a note about a task made private since is not given to a reader who may no longer see it (T-18)', async () => {
+  const lead = await agent('lead');
+  const watcher = await agent('watcher');
+  const t = (await board.call(lead, 'create_task', { title: 'SOON-SECRET', outcome: 'x', participants: 'watcher' })) as { id: string };
+  await board.call(lead, 'post_message', { to: t.id, body: 'details for everyone here' });
+  // The watcher stops being a party and the task becomes private before they read.
+  await board.call(lead, 'update_task', { task: t.id, rev: await rev(lead, t.id), participants: 'none', private: true });
+  const items = ((await board.call(watcher, 'inbox', { peek: true })) as { items: { subject: string; text: string }[] }).items;
+  expect(items.some((n) => n.subject === t.id || n.text.includes('SOON-SECRET'))).toBe(false);
+  // The cursor still moves past them, and an administrator (who may see the task) is unaffected.
+  await board.call(watcher, 'inbox', {});
+  await board.call(lead, 'update_task', { task: t.id, rev: await rev(lead, t.id), private: false });
+  expect(((await board.call(watcher, 'inbox', {})) as { items: unknown[] }).items).toEqual([]);
+});

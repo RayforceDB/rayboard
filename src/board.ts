@@ -506,7 +506,13 @@ export function openBoard(options: BoardOptions): Board {
         if (items.length > 0 && p.peek !== true) {
           commit('inbox.read', actor.id, actor.id, '', { cursors: [{ id: actor.id, seq: items.at(-1)!.seq as number }] }, [], true);
         }
-        return { items: items.map(({ dest: _dest, id: _id, ...rest }) => rest), more: items.length === 100 };
+        // Whether one may know of a task is decided when it is read, not when the note was written: a task
+        // made private since is not told of to someone who may no longer see it. The cursor still moves past it.
+        const mayKnow = (n: Row): boolean => {
+          const t = TASK_ID.test(n.subject as string) ? store.get('tasks', n.subject as string) : null;
+          return t === null || canSee(actor, t);
+        };
+        return { items: items.filter(mayKnow).map(({ dest: _dest, id: _id, ...rest }) => rest), more: items.length === 100 };
       },
     },
     list_reviews: {
