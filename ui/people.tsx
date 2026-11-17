@@ -17,7 +17,7 @@ export function People() {
         {admin && <button className="primary" onClick={() => setAdding(true)}>Invite person</button>}
       </header>
       <div className="cards">
-        {board.people.map((p) => (
+        {board.people.filter((p) => p.status === 'active').map((p) => (
           <article key={p.id} className="agent">
             <div className="row"><Avatar id={p.id} size={44} /><b>{p.name}</b><span className="grow" /><span className="badge">{p.role}</span></div>
             {p.about && <p className="about">{p.about}</p>}

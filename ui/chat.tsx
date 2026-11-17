@@ -34,7 +34,7 @@ export function Chat({ item }: { item: string }) {
     const to = current.startsWith('dm:') ? `@${dmLabel(current)}` : current;
     if (await act(() => api.call('post_message', { to, body: text }))) setText('');
   };
-  const others = [...board.agents.filter((a) => a.status !== 'revoked'), ...board.people].filter((a) => a.id !== me.id);
+  const others = [...board.agents.filter((a) => a.status !== 'revoked'), ...board.people.filter((p) => p.status === 'active')].filter((a) => a.id !== me.id);
   const dmOf = (id: string): string => `dm:${[me.id, id].sort().join(':')}`;
   const watched = board.dms.filter((d) => !mine(d.chan));
 

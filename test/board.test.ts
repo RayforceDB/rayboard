@@ -264,3 +264,15 @@ test('people join by a one-time invitation, with roles and privacy that survive 
   expect({ ...((await board.call(admin, 'dashboard', {})) as object), now: 0 }).toEqual({ ...(before as object), now: 0 });
   await fails(board.call(board.userById(member.id)!, 'create_agent', { name: 'still-not-allowed' }), 'forbidden');
 });
+
+test('an administrator deactivates a person without deleting identity or the last admin', async () => {
+  const admin = board.userById(board.store.all('users').find((u) => u.name === 'anton')!.id as string)!;
+  const person = await board.createUser('temporary-person', 'a sufficiently long password', 'member');
+  await expect(board.call(admin, 'deactivate_person', { user: admin.id })).rejects.toMatchObject({ code: 'conflict' });
+  const result = await board.call(admin, 'deactivate_person', { user: person.id }) as any;
+  expect(result.status).toBe('deactivated');
+  expect(board.userById(person.id)).toBeNull();
+  expect(await board.login('temporary-person', 'a sufficiently long password')).toBeNull();
+  expect(board.store.get('users', person.id)?.name).toBe('temporary-person');
+  await expect(board.createUser('temporary-person', 'a sufficiently long password')).rejects.toMatchObject({ code: 'conflict' });
+});

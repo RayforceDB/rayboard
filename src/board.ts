@@ -916,6 +916,18 @@ export function openBoard(options: BoardOptions): Board {
         return userView({ ...row, role });
       },
     },
+    deactivate_person: {
+      description: "Deactivate a person without deleting history; their identity cannot be reused.", who: 'user', mutates: true, admin: true, params: { user: str('The person.', 40, true) },
+      run(actor, p) {
+        const target = someone(p.user as string, 'person');
+        const row = target.kind === 'user' ? store.get('users', target.id)! : bad('not_found', 'an agent is not a person');
+        if (row.status !== 'active') bad('conflict', `${target.name} is not active`);
+        if (roleOf(row) === 'admin' && store.all('users').filter((u) => u.status === 'active' && roleOf(u) === 'admin').length === 1) bad('conflict', 'keep at least one active administrator');
+        const next = { ...row, status: 'deactivated' };
+        commit('person.deactivated', actor.id, row.id as string, actor.name + ' deactivated ' + row.name, { users: [next] });
+        return userView(next);
+      },
+    },
     new_enrollment_key: {
       description: 'Make a new key with which agents can ask to join. The one before stops working. Shown once.',
       who: 'user', mutates: true, admin: true, secret: true, params: {},

@@ -128,7 +128,7 @@ function Assignee({ value, onChange, none }: { value: string; onChange: (v: stri
         {board.agents.filter((a) => a.status === 'active').map((a) => <option key={a.id} value={a.id}>{a.name}{a.online ? '' : ' (offline)'}</option>)}
       </optgroup>
       <optgroup label="People">
-        {board.people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        {board.people.filter((p) => p.status === 'active').map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </optgroup>
     </select>
   );
