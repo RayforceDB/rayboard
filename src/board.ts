@@ -95,6 +95,9 @@ export interface Board {
 }
 
 const NAME = /^[a-z0-9][a-z0-9_-]{1,31}$/;
+/** Names a message already gives a meaning to, so nobody can be called by them: @all is everyone here. */
+const RESERVED = new Set(['all']);
+const reserved = (name: string): void => { if (RESERVED.has(name)) bad('invalid', `@${name} is reserved: it names everyone a message reaches`); };
 const TASK_ID = /^T-[1-9][0-9]{0,8}$/;
 const TOKEN = /^rb_(a_[a-z0-9]{8})_[A-Za-z0-9_-]{43}$/;
 const OPEN_STATUSES = ['open', 'in_progress', 'waiting', 'blocked', 'in_review', 'changes_requested'] as const;
@@ -327,6 +330,7 @@ export function openBoard(options: BoardOptions): Board {
   function newAgent(by: string, p: { name: string; kind?: string; about?: string; budget?: number }, status: 'pending' | 'active'): { agent: Row; token: string } {
     const name = p.name.toLowerCase();
     if (!NAME.test(name)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _, and starts with a letter or a digit');
+    reserved(name);
     if (directory().byName.has(name)) bad('conflict', `the name ${name} is taken`);
     const id = ident('a');
     const token = `rb_${id}_${secret()}`;
@@ -927,6 +931,7 @@ export function openBoard(options: BoardOptions): Board {
         if (target.kind !== 'user') bad('not_found', `${target.name} is an agent, not a person`);
         const name = (p.name as string).toLowerCase();
         if (!NAME.test(name)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _');
+        reserved(name);
         const found = directory().byName.get(name);
         if (found !== undefined && found.id !== target.id) bad('conflict', `the name ${name} is taken`);
         const row = store.get('users', target.id)!;
@@ -1178,6 +1183,7 @@ export function openBoard(options: BoardOptions): Board {
     async createUser(name, password, role = 'admin') {
       const handle = name.toLowerCase();
       if (!NAME.test(handle)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _');
+      reserved(handle);
       if (password.length < 10 || password.length > 200) bad('invalid', 'a password has at least 10 characters');
       const pass = await Bun.password.hash(password, { algorithm: 'argon2id' });
       if (directory().byName.has(handle)) bad('conflict', `the name ${handle} is taken`);

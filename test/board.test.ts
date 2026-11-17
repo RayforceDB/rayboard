@@ -314,3 +314,15 @@ test('@all expands only to eligible active participants, never direct-message ou
   expect((await inbox(c)).every((n) => n.type !== "dm")).toBe(true);
   expect((await inbox(c)).every((n) => n.type !== "dm")).toBe(true);
 });
+
+test('nobody can be named all, because @all already names everyone a message reaches', async () => {
+  await fails(board.call(admin, 'create_agent', { name: 'all' }), 'invalid');
+  await fails(board.call(admin, 'create_agent', { name: 'ALL' }), 'invalid');
+  await fails(board.createUser('all', 'correct horse battery'), 'invalid');
+  const { key } = (await board.call(admin, 'new_enrollment_key', {})) as { key: string };
+  await fails((async () => board.register(key, { name: 'all' }))(), 'invalid');
+  const member = await board.createUser('member', 'correct horse battery', 'member');
+  await fails(board.call(admin, 'rename_person', { user: member.id, name: 'all' }), 'invalid');
+  await board.call(admin, 'create_agent', { name: 'allison' });
+  await board.call(admin, 'create_channel', { name: 'all' });
+});

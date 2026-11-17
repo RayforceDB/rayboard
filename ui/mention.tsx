@@ -8,6 +8,8 @@ export function completionAt(value: string, caret: number): { start: number; que
   const before = value.slice(0, caret);
   const at = Math.max(before.lastIndexOf('@'), before.lastIndexOf('#'));
   if (at < 0 || (at > 0 && /[\w@#]/.test(before[at - 1]!))) return null;
+  // A # right after / or & belongs to a link's fragment or an entity, not to a channel.
+  if (before[at] === '#' && at > 0 && /[/&]/.test(before[at - 1]!)) return null;
   const query = before.slice(at + 1);
   return /^[\w-]*$/.test(query) ? { start: at, query, kind: before[at] === '#' ? 'channel' : 'mention' } : null;
 }
@@ -53,7 +55,8 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
         setPicked((picked + (e.key === 'ArrowDown' ? 1 : candidates.length - 1)) % candidates.length);
         return;
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
+      // Ctrl/Cmd+Enter always sends, even with the list open; plain Enter or Tab picks.
+      if ((e.key === 'Enter' && !e.ctrlKey && !e.metaKey) || e.key === 'Tab') {
         e.preventDefault();
         choose(candidates[picked % candidates.length]!);
         return;

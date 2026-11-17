@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { create } from 'react-test-renderer';
 import { expect, test } from 'bun:test';
-import { MentionInput } from '../ui/mention';
+import { completionAt, MentionInput } from '../ui/mention';
 import { BoardContext, type Ctx } from '../ui/kit';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const board = { now: new Date().toISOString(), agents: [{ id: 'a_mica', name: 'mica', kind: 'teneral', status: 'active' }, { id: 'a_morsel', name: 'morsel', kind: 'teneral', status: 'active' }, { id: 'a_old', name: 'old', status: 'revoked' }], people: [{ id: 'u_anton', name: 'anton', kind: 'user', role: 'admin', status: 'active' }], channels: [], tasks: [], reviews: [], dms: [], threads: [], enrollment: false, seq: 1 };
@@ -48,5 +48,29 @@ test('@ lists only active identities, while # lists channels and preserves the m
   await act(async()=>{tree!.update(<BoardContext.Provider value={local}><MentionInput value={'@'} onChange={(v) => { value = v; }} onSend={() => {}} placeholder="message" /></BoardContext.Provider>);});
   const labels = tree!.root.findAllByProps({ role: 'option' }).map((o) => o.findAllByType('span').at(-1)!.children.join(''));
   expect(labels).toContain('@all'); expect(labels).toContain('@mica'); expect(labels).not.toContain('#general'); expect(labels).not.toContain('@old');
+  await act(async () => { tree!.unmount(); });
+});
+
+test('# after / or & stays part of a link or an entity, while # after a space is a channel', () => {
+  for (const text of ['https://host/#gen', 'a&#12', 'C#', 'page#sec']) expect(completionAt(text, text.length)).toBeNull();
+  expect(completionAt('see #gen', 8)).toEqual({ start: 4, query: 'gen', kind: 'channel' });
+  expect(completionAt('#gen', 4)).toEqual({ start: 0, query: 'gen', kind: 'channel' });
+});
+
+test('Ctrl or Cmd+Enter sends even while the picker is open', async () => {
+  const local = { ...ctx, board: { ...board, channels: [{ id: 'c_general', name: 'general' }] } } as unknown as Ctx;
+  let value = 'see #gen';
+  let sent = 0;
+  let tree: ReturnType<typeof create>;
+  const view = (v: string) => <BoardContext.Provider value={local}><MentionInput value={v} onChange={(next) => { value = next; }} onSend={() => { sent++; }} placeholder="message" /></BoardContext.Provider>;
+  await act(async () => { tree = create(view(value)); });
+  const input = tree!.root.findByType('textarea');
+  await act(async () => { input.props.onChange({ target: { value: 'see #gen', selectionStart: 8 } }); });
+  await act(async () => { tree!.update(view('see #gen')); });
+  expect(tree!.root.findAllByProps({ role: 'option' })).toHaveLength(1);
+  await act(async () => { input.props.onKeyDown({ key: 'Enter', ctrlKey: true, preventDefault() {} }); });
+  await act(async () => { input.props.onKeyDown({ key: 'Enter', metaKey: true, preventDefault() {} }); });
+  expect(sent).toBe(2);
+  expect(value).toBe('see #gen');
   await act(async () => { tree!.unmount(); });
 });
