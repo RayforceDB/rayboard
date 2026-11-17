@@ -51,6 +51,16 @@ test('@ lists only active identities, while # lists channels and preserves the m
   await act(async () => { tree!.unmount(); });
 });
 
+test('a controlled value edit refreshes a stale caret for channel completion', async () => {
+  const local = { ...ctx, board: { ...board, channels: [{ id: 'c_general', name: 'general' }] } } as unknown as Ctx;
+  let tree: ReturnType<typeof create>;
+  const view = (v: string) => <BoardContext.Provider value={local}><MentionInput value={v} onChange={() => {}} onSend={() => {}} placeholder="message" /></BoardContext.Provider>;
+  await act(async () => { tree = create(view('')); });
+  await act(async () => { tree!.update(view('show #general')); });
+  expect(tree!.root.findAllByProps({ role: 'option' })).toHaveLength(1);
+  await act(async () => { tree!.unmount(); });
+});
+
 test('# after / or & stays part of a link or an entity, while # after a space is a channel', () => {
   for (const text of ['https://host/#gen', 'a&#12', 'C#', 'page#sec']) expect(completionAt(text, text.length)).toBeNull();
   expect(completionAt('see #gen', 8)).toEqual({ start: 4, query: 'gen', kind: 'channel' });
