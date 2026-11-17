@@ -59,3 +59,40 @@ test('a whole log is left exactly as it is', async () => {
   expect(existsSync(`${base}.log`)).toBe(true);
   void size;
 });
+
+test('a torn log another process holds is not touched: that process may be writing the very frame', async () => {
+  const { dir, base } = await written();
+  truncateSync(`${base}.log`, statSync(`${base}.log`).size - 7);
+  const torn = readFileSync(`${base}.log`);
+  // Another process opens the board and holds it (and its lock) until told to stop.
+  const holder = Bun.spawn(['bun', '-e', `
+    const { openBoard } = await import(${JSON.stringify(join(import.meta.dir, '..', 'src', 'board.ts'))});
+    const { sharedRay } = await import(${JSON.stringify(join(import.meta.dir, 'helpers.ts'))});
+    const { truncateSync, writeFileSync } = await import('node:fs');
+    // It needs a log it can open: the whole one; the torn bytes are put back once it holds the lock.
+    writeFileSync(${JSON.stringify(`${base}.log`)}, Buffer.from(${JSON.stringify(torn.toString('base64'))}, 'base64'));
+    truncateSync(${JSON.stringify(`${base}.log`)}, 0);
+    const board = openBoard({ ray: await sharedRay(), base: ${JSON.stringify(base)} });
+    writeFileSync(${JSON.stringify(`${base}.log`)}, Buffer.from(${JSON.stringify(torn.toString('base64'))}, 'base64'));
+    console.log('holding');
+    await new Promise((r) => process.stdin.once('data', r));
+    board.close();
+  `], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  const reader = holder.stdout.getReader();
+  let said = '';
+  while (!said.includes('holding')) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error(`the holder ended: ${await new Response(holder.stderr).text()}`);
+    said += new TextDecoder().decode(value);
+  }
+  try {
+    const held = readFileSync(`${base}.log`);
+    await expect((async () => openBoard({ ray: await sharedRay(), base }))()).rejects.toThrow();
+    expect(readFileSync(`${base}.log`).equals(held)).toBe(true);
+    expect(readdirSync(dir).some((f) => f.startsWith('board.log.torn-'))).toBe(false);
+  } finally {
+    holder.stdin.write('stop\n');
+    holder.stdin.end();
+    await holder.exited;
+  }
+});

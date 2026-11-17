@@ -1,3 +1,4 @@
+import { dlopen } from 'bun:ffi';
 import { closeSync, copyFileSync, existsSync, openSync, readSync, statSync, truncateSync } from 'node:fs';
 import type { Entry, Row } from './journal';
 import { fromRayNs, toRayNs, type Column, type Ray, type Table } from './ray';
@@ -129,6 +130,42 @@ const SNAPSHOT_EVERY = 5000;
 /** The names this side uses for what it hands over; they are emptied so that a snapshot holds the tables and nothing passing. */
 const NAMES = '(set rb_batch null) (set rb_q null) (set rb_e null) (set rb_f null)';
 
+/**
+ * The engine's own lock on a board: an exclusive flock on <base>.lk, held by whoever has the journal open
+ * for as long as it is open. Taken here on its own descriptor, it conflicts with any holder, this process's
+ * engine included, so it is let go again before the engine opens the journal. Null where flock is not
+ * available (Windows): nothing is then changed on disk outside the engine.
+ */
+type Flock = (fd: number, op: number) => number;
+let flockFn: Flock | null | undefined;
+function flock(): Flock | null {
+  if (flockFn !== undefined) return flockFn;
+  const lib = process.platform === 'linux' ? 'libc.so.6' : process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : null;
+  try {
+    flockFn = lib === null ? null : (dlopen(lib, { flock: { args: ['i32', 'i32'], returns: 'i32' } }).symbols.flock as Flock);
+  } catch {
+    flockFn = null;
+  }
+  return flockFn;
+}
+const LOCK_EX = 2, LOCK_NB = 4, LOCK_UN = 8;
+/** Runs `work` holding the board's lock, or answers null without running it when someone else holds it. */
+export function whileLocked<T>(base: string, work: () => T): T | null {
+  const f = flock();
+  if (f === null) return null;
+  const fd = openSync(`${base}.lk`, 'a+');
+  try {
+    if (f(fd, LOCK_EX | LOCK_NB) !== 0) return null;
+    try {
+      return work();
+    } finally {
+      f(fd, LOCK_UN);
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** The engine's frame header: a u32 prefix, version, flags, endian, message type, then the payload size as an i64. */
 const FRAME_HEADER = 16;
 const FRAME_PREFIX = 0xcefadefa;
@@ -185,7 +222,9 @@ export function openStore(ray: Ray, base: string): Store {
   if (!existsSync(`${base}.qdb`) && existsSync(`${base}.log`) && statSync(`${base}.log`).size > 0) {
     throw new Error(`${base}.log is there but ${base}.qdb is not: the board's snapshot is missing. Restore it from a backup; starting would lose everything before the last start`);
   }
-  recoverTornTail(ray, `${base}.log`);
+  // Only the one who may write the board repairs its log: a log another process holds, and may be
+  // writing that very frame of, is left alone, and the engine then refuses to open it.
+  whileLocked(base, () => recoverTornTail(ray, `${base}.log`));
   ray.journal(base);
   // A snapshot replaces its empty table and has the columns of the version that made it. Carry
   // those rows over explicitly before another write: an upsert cannot introduce a new column.
