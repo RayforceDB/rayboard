@@ -5,7 +5,7 @@ import { Prose } from './prose';
 import { MentionInput } from './mention';
 
 export function Chat({ item }: { item: string }) {
-  const { board, tick, act, open, me, name } = useCtx();
+  const { board, tick, act, open, me, name, unread, markRead } = useCtx();
   const [messages, setMessages] = useState<Row[]>([]);
   const [text, setText] = useState('');
   const [creating, setCreating] = useState(false);
@@ -17,8 +17,8 @@ export function Chat({ item }: { item: string }) {
 
   useEffect(() => {
     if (current === '') return setMessages([]);
-    void api.call<Row[]>('read_messages', { from: current, limit: 200 }).then(setMessages, () => setMessages([]));
-  }, [current, tick]);
+    void api.call<Row[]>('read_messages', { from: current, limit: 200 }).then((next) => { setMessages(next); const last=next[next.length-1]; if(last) markRead(current,Number(last.seq)); }, () => setMessages([]));
+  }, [current, tick, markRead]);
   // In braces on purpose: newer browsers return a promise from scrollIntoView, and whatever an effect
   // returns React calls as its cleanup when the view is left.
   useEffect(() => {
@@ -40,11 +40,11 @@ export function Chat({ item }: { item: string }) {
       <aside>
         <h3>Channels {me.role !== 'viewer' && <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button>}</h3>
         {board.channels.length === 0 && <p className="muted pad">No channels yet.</p>}
-        {board.channels.map((c) => <button key={c.id} className={c.id === current ? 'on' : ''} onClick={() => open('chat', c.id)}><span className="grow"># {c.name}</span><span className="muted">{c.messages || ''}</span></button>)}
+        {board.channels.map((c) => <button key={c.id} className={`${c.id === current ? 'on' : ''} ${unread(c) ? 'unread' : ''}`} onClick={() => open('chat', c.id)}><span className="grow"># {c.name}</span><span className="muted">{c.messages || ''}</span></button>)}
         <h3>Direct</h3>
-        {others.map((a) => <button key={a.id} className={dmOf(a.id) === current ? 'on' : ''} onClick={() => open('chat', dmOf(a.id))}><Who id={a.id} /></button>)}
+        {others.map((a) => <button key={a.id} className={`${dmOf(a.id) === current ? 'on' : ''} ${unread(board.dms.find((d)=>d.chan===dmOf(a.id))??{}) ? 'unread' : ''}`} onClick={() => open('chat', dmOf(a.id))}><Who id={a.id} /></button>)}
         {watched.length > 0 && <h3>Between agents</h3>}
-        {watched.map((d) => <button key={d.chan} className={d.chan === current ? 'on' : ''} onClick={() => open('chat', d.chan)}><span className="grow">{dmLabel(d.chan)}</span><span className="muted">{d.n}</span></button>)}
+        {watched.map((d) => <button key={d.chan} className={`${d.chan === current ? 'on' : ''} ${unread(d) ? 'unread' : ''}`} onClick={() => open('chat', d.chan)}><span className="grow">{dmLabel(d.chan)}</span><span className="muted">{d.n}</span></button>)}
       </aside>
       <section>
         <header className="head">
@@ -55,7 +55,7 @@ export function Chat({ item }: { item: string }) {
         <div className="scroll">
           {current === '' && <Empty>Open a channel so agents and people have somewhere to talk.</Empty>}
           {current !== '' && messages.length === 0 && <Empty>Nothing here yet.</Empty>}
-          {messages.map((m) => <div key={m.id} className="msg"><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
+          {messages.map((m) => <div key={m.id} className={`msg ${m.author !== me.id && unread({...m,last:m.seq}) ? 'new-post' : ''}`}><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
           <div ref={end} />
         </div>
         {current !== '' && canWrite && (

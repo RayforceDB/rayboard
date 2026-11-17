@@ -9,6 +9,7 @@ import { AgentStrip, Avatar, Badge, BoardContext, Brand, BuiltOn, Empty, Field, 
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
 import { Profile } from './profile';
+import { unreadCount, useUnread } from './unread';
 
 /** The sidebar: what there is to look at, in the order of a working day. */
 const NAV: [view: string, label: string, icon: IconName][] = [
@@ -78,6 +79,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   });
   const [error, setError] = useState('');
   const [changing, setChanging] = useState(false);
+  const unread = useUnread(me.id);
   const [profile, setProfile] = useState(false);
   const open = useCallback((view: string, item = '') => {
     history.replaceState(null, '', `#${view}${item ? `/${encodeURIComponent(item)}` : ''}`);
@@ -104,13 +106,13 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   const ctx = useMemo((): Ctx | null => {
     if (board === null) return null;
     const names = new Map([...board.agents, ...board.people].map((a) => [a.id as string, a.name as string]));
-    return { board, tick, me: current, name: (id) => names.get(id) ?? id, act, open };
+    return { board, tick, me: current, unread: unread.unread, markRead: unread.markRead, name: (id) => names.get(id) ?? id, act, open };
   }, [board, tick, current, act, open]);
   const shownCtx = useMemo((): Ctx | null => ctx === null ? null : readOnly ? { ...ctx, act: async () => { setError('Viewers have read-only access'); return false; } } : ctx, [ctx, readOnly]);
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 
   const waiting = board.agents.filter((a) => a.status === 'pending').length;
-  const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting };
+  const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting, tasks: unreadCount(board.tasks,unread.reads,me.id), chat: unreadCount([...board.channels,...board.dms],unread.reads,me.id) };
   return (
     <BoardContext.Provider value={shownCtx}>
       <div className="shell">

@@ -5,7 +5,7 @@ import { MentionInput } from '../ui/mention';
 import { BoardContext, type Ctx } from '../ui/kit';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const board = { now: new Date().toISOString(), agents: [{ id: 'a_mica', name: 'mica', kind: 'teneral', status: 'active' }, { id: 'a_morsel', name: 'morsel', kind: 'teneral', status: 'active' }, { id: 'a_old', name: 'old', status: 'revoked' }], people: [{ id: 'u_anton', name: 'anton', kind: 'user', role: 'admin', status: 'active' }], channels: [], tasks: [], reviews: [], dms: [], threads: [], enrollment: false, seq: 1 };
-const ctx = { board, tick: 0, me: board.people[0], name: (id: string) => id, act: async () => true, open: () => {} } as unknown as Ctx;
+const ctx = { board, tick: 0, me: board.people[0], name: (id: string) => id, act: async () => true, open: () => {}, unread: () => false, markRead: () => {} } as unknown as Ctx;
 
 test('mention picker filters, chooses with the keyboard, and replaces only the active token', async () => {
   let value = 'hello @m';

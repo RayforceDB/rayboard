@@ -45,6 +45,8 @@ export interface Ctx {
   /** Runs something that changes the board and shows what went wrong if it fails. Resolves to whether it worked. */
   act: (work: () => Promise<unknown>) => Promise<boolean>;
   open: (view: string, item?: string) => void;
+  unread: (row: Row) => boolean;
+  markRead: (channel: string, last: number) => void;
 }
 export const BoardContext = createContext<Ctx | null>(null);
 export const useCtx = (): Ctx => useContext(BoardContext)!;

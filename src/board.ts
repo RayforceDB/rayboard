@@ -802,8 +802,8 @@ export function openBoard(options: BoardOptions): Board {
           channels: actions.list_channels!.run({} as Actor, {}),
           tasks: store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t)).map(({ body: _body, ...rest }) => rest),
           reviews: actions.list_reviews!.run(actor, {}),
-          dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)),
-          threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id)})`).filter((r) => {
+          dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)),
+          threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((r) => {
             const t = store.get('tasks', r.chan as string);
             return t !== null && canSee(actor, t);
           }),

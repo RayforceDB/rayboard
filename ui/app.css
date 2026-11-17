@@ -390,3 +390,6 @@ tr.clickable:hover td { background: var(--bg); }
 .drawer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .drawer-head h2 { flex: 1 1 100%; }
 .thread .new-post { background: var(--accent-soft); }
+.card-task.unread, .task-row.unread { border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+.chat aside button.unread { color: var(--accent-text); font-weight: 700; }
+.msg.new-post { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: 12px; }

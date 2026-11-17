@@ -16,7 +16,7 @@ const LANES = [
 const CANCELLED = { key: 'cancelled', label: 'Cancelled', has: ['cancelled'] } as const;
 
 export function Tasks({ item }: { item: string }) {
-  const { board, open, name, me } = useCtx();
+  const { board, open, name, me, unread, markRead } = useCtx();
   const [creating, setCreating] = useState(false);
   const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
@@ -28,6 +28,7 @@ export function Tasks({ item }: { item: string }) {
   const cancelled = board.tasks.filter((t) => t.status === 'cancelled').length;
   const now = Date.parse(board.now);
   const comments = new Map((board.threads ?? []).map((r) => [r.chan as string, r.n as number]));
+  const unreadRow = (t: Row) => unread({ ...t, ...(board.threads ?? []).find((r) => r.chan === t.id) });
   const q = query.trim().toLowerCase();
   const shown = board.tasks.filter((t) => q === '' || `${t.id} ${t.title} ${name(t.assignee)}`.toLowerCase().includes(q));
   const lanes = [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
@@ -62,7 +63,7 @@ export function Tasks({ item }: { item: string }) {
               <section key={lane.key} className="lane">
                 <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
                 {lane.tasks.map((t) => (
-                  <button key={t.id} className={`card-task ${t.id === item ? 'on' : ''}`} onClick={() => open('tasks', t.id)}>
+                  <button key={t.id} className={`card-task ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
                     <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} /></span>
                     <b>{t.title}</b>
                     <Tags t={t} />
@@ -82,7 +83,7 @@ export function Tasks({ item }: { item: string }) {
               <section key={g.key}>
                 <h3>{g.label}<span className="count-pill">{g.total}</span></h3>
                 {g.tasks.map((t) => (
-                  <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''}`} onClick={() => open('tasks', t.id)}>
+                  <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
                     <code>{t.id}</code>
                     <span className="title">{t.title}</span>
                     {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
@@ -164,7 +165,7 @@ function NewTask({ onClose, parent = '' }: { onClose: () => void; parent?: strin
 }
 
 function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const { act, tick, board, me, open, name } = useCtx();
+  const { act, tick, board, me, open, name, markRead } = useCtx();
   const [d, setD] = useState<{ task: Row; thread: Row[]; evidence: Row[]; reviews: Row[]; subtasks: Row[]; cost: number } | null>(null);
   const [events, setEvents] = useState<Row[]>([]);
   const [tab, setTab] = useState<'discussion' | 'details' | 'activity'>('discussion');
@@ -176,7 +177,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const [to, setTo] = useState('');
   const [sub, setSub] = useState(false);
   const [copied, setCopied] = useState(false);
-  useEffect(() => void api.call('get_task', { task: id }).then(setD, (e: Error) => setMissing(e.message)), [id, tick]);
+  useEffect(() => void api.call('get_task', { task: id }).then((next) => { setD(next); markRead(id,Math.max(next.task.seq??0,...next.thread.map((m:Row)=>Number(m.seq??0)))); }, (e: Error) => setMissing(e.message)), [id, tick, markRead]);
   useEffect(() => {
     if (tab === 'activity') void api.call<Row[]>('activity', { subject: id, limit: 100 }).then(setEvents, () => setEvents([]));
   }, [id, tick, tab]);
