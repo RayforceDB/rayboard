@@ -44,6 +44,7 @@ export const api = {
     if (!res.ok || !data.ok) { const e = new Error(data?.error?.message ?? 'the upload failed') as Error & { code?: string }; e.code = data?.error?.code; throw e; }
     return data.result;
   },
+  removeAvatar: () => send('/api/call/remove_avatar', {}),
   password: (current: string, next: string) => send('/api/password', { current, next }),
   call: async <T = any>(action: string, params: Row = {}): Promise<T> => (await send(`/api/call/${action}`, params)).result as T,
 };

@@ -1,5 +1,6 @@
 /* A warm, light workspace: white cards on an off-white ground, one orange for what matters,
-   Inter for text and JetBrains Mono for what is typed. The fonts are served from here. */
+   Cyrillic-capable Inter for text and JetBrains Mono for what is typed. The fonts are served from here. */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('./assets/fonts/inter-cyrillic.ttf') format('truetype'); }
 @font-face { font-family: 'Inter'; font-weight: 100 900; font-display: swap; src: url('./assets/fonts/inter.woff2') format('woff2'); }
 @font-face { font-family: 'JetBrains Mono'; font-weight: 100 800; font-display: swap; src: url('./assets/fonts/jbmono.woff2') format('woff2'); }
 
@@ -383,3 +384,9 @@ tr.clickable:hover td { background: var(--bg); }
 .mention-list button { justify-content: flex-start; border: none; background: transparent; text-align: left; }
 .mention-list button.on { background: var(--accent-soft); color: var(--accent-text); }
 .mention-list small { margin-left: auto; color: var(--muted); }
+
+/* Markdown prose remains the same readable interface face; only code is monospace. */
+.msg .prose, .post .prose { font-family: var(--sans); }
+.drawer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.drawer-head h2 { flex: 1 1 100%; }
+.thread .new-post { background: var(--accent-soft); }

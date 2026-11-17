@@ -3,6 +3,7 @@ import { ago, api, clock, usd, when, type Row } from './api';
 import { Icon } from './icons';
 import { AgentStrip, Avatar, Badge, Empty, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
 import { Prose } from './prose';
+import { MentionInput } from './mention';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -204,7 +205,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   });
   const menu = [
     ...(live ? [{ label: 'Add subtask', icon: 'subtask' as const, run: () => setSub(true) }] : []),
-    ...(!live ? [{ label: 'Reopen', icon: 'undo' as const, run: run('reopen_task') }] : []),
+    ...(!live ? [] : []),
     ...(live ? [{ label: 'Cancel task', icon: 'ban' as const, danger: true, run: run('cancel_task', { rev: t.rev }) }] : []),
   ];
 
@@ -221,6 +222,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="drawer-head">
           <h2>{t.title}</h2>
           <StatusPill status={t.status} />
+          {!live && me.role !== 'viewer' && <button onClick={run('reopen_task')}><Icon name="undo" />Reopen task</button>}
           <div className="facts">
             <span className="muted"><Icon name="user" />Assignee</span>
             <Who id={t.assignee} empty="Unclaimed" />
@@ -351,7 +353,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       {tab === 'discussion' && (
         <div className="reply">
           <Icon name="comment" className="muted" />
-          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={1} placeholder="Reply or @mention an agent…" aria-label={`Comment on ${t.id}`} onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && void say()} />
+          <MentionInput value={comment} onChange={setComment} onSend={() => void say()} placeholder="Reply or @mention an agent…" ariaLabel={`Comment on ${t.id}`} />
           <button className="primary icon send" onClick={() => void say()} disabled={comment.trim() === ''} aria-label="Send"><Icon name="send" /></button>
         </div>
       )}

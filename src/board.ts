@@ -784,6 +784,10 @@ export function openBoard(options: BoardOptions): Board {
         return userView(next);
       },
     },
+    remove_avatar: {
+      description: 'Remove your own profile image.', who: 'user', mutates: true, params: {},
+      run(actor) { api.clearAvatar(actor.id); return { ok: true }; },
+    },
     // ---- for the people overseeing the board ----
     dashboard: {
       description: 'Everything the dashboard shows, in one answer.',
@@ -949,7 +953,7 @@ export function openBoard(options: BoardOptions): Board {
     return out;
   }
 
-  return {
+  const api: Board = {
     actions,
     store,
     async call(actor, name, params) {
@@ -1100,6 +1104,6 @@ export function openBoard(options: BoardOptions): Board {
     onChange: (listener) => void listeners.push(listener),
     close: () => store.close(),
   };
+  return api;
 }
-
 const DUMMY_HASH = await Bun.password.hash(randomBytes(16).toString('hex'), { algorithm: 'argon2id' });
