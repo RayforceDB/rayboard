@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Avatar, useCtx } from './kit';
 import type { Row } from './api';
 
@@ -30,8 +30,6 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
   const [caret, setCaret] = useState(value.length);
   const [picked, setPicked] = useState(0);
   const [dismissed, setDismissed] = useState(false);
-  // Controlled/programmatic edits do not necessarily fire select or keyup.
-  useEffect(() => { setCaret(input.current?.selectionStart ?? value.length); }, [value]);
   const active = dismissed ? null : completionAt(value, caret);
   const candidates = useMemo<Row[]>(() => {
     if (active?.kind === 'channel') return board.channels.filter((c) => c.name.toLowerCase().startsWith(active.query.toLowerCase()));

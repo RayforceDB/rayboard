@@ -61,11 +61,11 @@ try {
   await page.locator('.card-task').filter({ hasText: 'Navigation fixture' }).click();
   await expect(page.getByRole('complementary', { name: 'Task T-4', exact: true })).toBeVisible();
   const comment=page.getByRole('combobox');
-  await comment.fill('show #general');
+  await comment.fill('show #Navigation');
   await expect(page.getByRole('listbox', { name: 'Choose a channel' })).toBeVisible();
-  await expect(page.getByRole('option', { name: '#general' })).toHaveCount(1);
+  await expect(page.getByRole('option', { name: '#Navigation' })).toHaveCount(1);
   await comment.press('Enter');
-  await expect(comment).toHaveValue('show #general ');
+  await expect(comment).toHaveValue('show #Navigation ');
   await comment.fill('@all');
   await expect(page.getByRole('option', { name: '@all' })).toHaveCount(1);
   await comment.press('Enter');
