@@ -35,7 +35,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
 } });
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}) });
   const page = await browser.newPage();
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));

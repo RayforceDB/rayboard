@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties } from 'react';
 import { api, clock, type Row } from './api';
 import { Empty, Field, Form, Modal, Who, useCtx } from './kit';
 import { Prose } from './prose';
@@ -38,7 +39,7 @@ export function Chat({ item }: { item: string }) {
   const watched = board.dms.filter((d) => !mine(d.chan));
 
   return (
-    <div className="chat" style={{ gridTemplateColumns: `${listWidth}px minmax(0, 1fr)` }}>
+    <div className="chat" style={{ gridTemplateColumns: `${listWidth}px minmax(0, 1fr)`, '--conversation-width': `${listWidth}px` } as CSSProperties}>
       <aside>
         <h3>Channels {me.role !== 'viewer' && <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button>}</h3>
         {board.channels.length === 0 && <p className="muted pad">No channels yet.</p>}

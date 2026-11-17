@@ -30,6 +30,7 @@ test('pointer drag follows the correct edge and releases capture', async () => {
   await act(async () => { tree = create(<ResizeHandle name="task" value={value} setValue={v => { value = v; }} min={320} max={720} reverse />); });
   const handle = tree!.root.findByProps({ role: 'separator' });
   await act(async () => { handle.props.onPointerDown({ button: 0, pointerId: 1, clientX: 900, preventDefault() {}, currentTarget: { setPointerCapture() { captured = true; } } }); });
+  await act(async () => { tree!.update(<ResizeHandle name="task" value={value} setValue={v => { value = v; }} min={320} max={720} reverse />); });
   await act(async () => { handle.props.onPointerMove({ pointerId: 1, clientX: 850 }); });
   expect(value).toBe(450);
   await act(async () => { handle.props.onPointerUp({ pointerId: 1, currentTarget: { hasPointerCapture: () => true, releasePointerCapture() { released = true; } } }); });

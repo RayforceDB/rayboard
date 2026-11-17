@@ -13,7 +13,8 @@
     "engine": "bun bin/rayboard.ts engine",
     "test": "bun test",
     "check": "tsc --noEmit",
-    "test:browser": "bun run test/browser-navigation.ts"
+    "test:browser": "bun run test/browser-navigation.ts",
+    "test:resize": "bun run test/browser-resize.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

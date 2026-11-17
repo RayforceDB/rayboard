@@ -396,7 +396,8 @@ tr.clickable:hover td { background: var(--bg); }
 
 
 /* Desktop panel edges are operable by pointer and keyboard. Long names yield to counters. */
-.shell > .resize-handle { grid-column: 1; grid-row: 1; justify-self: end; z-index: 7; }
+.shell { position: relative; }
+.shell > .resize-handle { position: absolute; left: var(--sidebar-width); top: 0; bottom: 0; z-index: 7; }
 .resize-handle { position: relative; width: 9px; min-height: 100%; margin-inline: -5px; cursor: col-resize; touch-action: none; outline: none; z-index: 6; }
 .resize-handle::after { content: ''; position: absolute; inset: 0 3px; background: transparent; border-radius: 2px; }
 .resize-handle:hover::after, .resize-handle:focus-visible::after, .resize-handle:active::after { background: var(--accent); }
@@ -404,7 +405,8 @@ tr.clickable:hover td { background: var(--bg); }
 .section button > .grow, .chat aside > button > .grow { flex: 1 1 0; }
 .section button > .count, .section button > .state, .chat aside > button > .muted { flex: none; }
 .drawer > .resize-handle { position: absolute; left: 0; top: 0; bottom: 0; width: 11px; margin-left: -5px; }
-.chat > .resize-handle { grid-column: 1; grid-row: 1; justify-self: end; }
+.chat > .resize-handle { position: absolute; left: var(--conversation-width); top: 0; bottom: 0; }
+.chat { position: relative; }
 .chat aside { min-width: 0; }
 @media (max-width: 860px) {
   .shell > .resize-handle, .chat > .resize-handle { display: none; }

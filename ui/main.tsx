@@ -1,4 +1,4 @@
-import { Component, StrictMode, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, StrictMode, useCallback, useEffect, useMemo, useState, type ReactNode, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ago, api, useBoard, usd, type Row } from './api';
 import { Agents } from './agents';
@@ -116,7 +116,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting, tasks: unreadCount(board.tasks,unread.reads,me.id), chat: unreadCount([...board.channels,...board.dms],unread.reads,me.id) };
   return (
     <BoardContext.Provider value={shownCtx}>
-      <div className="shell" style={{ gridTemplateColumns: `${sidebar}px minmax(0, 1fr)` }}>
+      <div className="shell" style={{ gridTemplateColumns: `${sidebar}px minmax(0, 1fr)`, '--sidebar-width': `${sidebar}px` } as CSSProperties}>
         <nav>
           <Brand />
           <div className="section">
