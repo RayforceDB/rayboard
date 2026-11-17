@@ -80,15 +80,14 @@ export function Tasks({ item }: { item: string }) {
           <div className="kanban">
             {lanes.map((lane) => (
               <section key={lane.key} className={`lane ${dropLane === lane.key ? 'drop-target' : ''}`} onDragOver={(e) => { if (dragging && canDrag(board.tasks.find((x) => x.id === dragging)!)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropLane(lane.key); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropLane(''); }} onDrop={(e) => void drop(e, lane)}>
-                <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
+                <h3><span className={`lane-dot s-${lane.key}`} aria-hidden="true" />{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
                 {lane.tasks.map((t) => (
-                  <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
-                    <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-dot" title="New updates" aria-label="New updates" />}</span>
+                  <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task s-${t.status} ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
+                    <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-dot" title="New updates" aria-label="New updates" />}</span>
                     <b>{t.title}</b>
                     <Tags t={t} />
                     <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
                     {mine.has(t.id) && <span className="ask"><Icon name="alert" />Waiting for your input</span>}
-                    {t.status === 'changes_requested' && <span className="ask"><Icon name="undo" />Changes requested</span>}
                     {t.dependency && <span className={`ask ${t.status === 'blocked' ? 'bad' : 'calm'}`}><Icon name={t.status === 'blocked' ? 'ban' : 'clock'} />{STATUS_LABEL[t.status]} on {t.dependency}</span>}
                   </button>
                 ))}
@@ -101,7 +100,7 @@ export function Tasks({ item }: { item: string }) {
           <div className="groups">
             {lanes.filter((g) => g.total > 0).map((g) => (
               <section key={g.key}>
-                <h3>{g.label}<span className="count-pill">{g.total}</span></h3>
+                <h3><span className={`lane-dot s-${g.key}`} aria-hidden="true" />{g.label}<span className="count-pill">{g.total}</span></h3>
                 {g.tasks.map((t) => (
                   <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
                     <code>{t.id}</code>
@@ -109,6 +108,7 @@ export function Tasks({ item }: { item: string }) {
                     {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
                     {mine.has(t.id) && <span className="ask inline"><Icon name="alert" />your input</span>}
                     <span className="grow" />
+                    <Badge status={t.status} />
                     {t.private === 1 && <Icon name="lock" className="muted" />}
                     <Prio level={t.priority} />
                     <Who id={t.assignee} empty="Unclaimed" />
