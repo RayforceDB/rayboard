@@ -132,3 +132,12 @@ test('stage-2 events (check runs) are taken, recorded and ignored, never shown a
   expect(status.deliveries.find((d) => d.id === 'chk-1')).toMatchObject({ result: 'ignored' });
   void t;
 });
+
+test('a pull request is one item whether it arrives as itself or as the issue it also is', async () => {
+  const pr = { node_id: 'PR_kw', number: 40, html_url: 'https://github.com/RayforceDB/rayforce/pull/40', title: 'Same thing', state: 'open', user: { login: 'dev' }, updated_at: '2026-11-17T10:00:00Z' };
+  const t = deliver('pull_request', { action: 'opened', pull_request: pr, repository: repo() }).task;
+  // The issues API (and reconciliation through it) gives the same pull request another node id.
+  const again = board.githubDelivery('as-issue', 'pull_request', { action: 'edited', pull_request: { ...pr, node_id: 'I_kw', updated_at: '2026-11-17T11:00:00Z' }, repository: repo() });
+  expect(again.task).toBe(t);
+  expect((await tasks()).filter((x) => x.title.startsWith('rayforce#40'))).toHaveLength(1);
+});

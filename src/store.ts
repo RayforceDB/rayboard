@@ -55,7 +55,7 @@ export const SCHEMA = {
     columns: { id: 'str', task: 'str', requester: 'str', reviewer: 'str', status: 'sym', note: 'str', comment: 'str', decider: 'str', created: 'ts', decided: 'ts', seq: 'i64' },
   },
   cursors: { keyed: true, columns: { id: 'str', seq: 'i64' } },
-  /** An issue or pull request of a followed repository, by GitHub's node id, and the task it is worked on as (T-19). */
+  /** An issue or pull request of a followed repository, by <repository id>#<number>, and the task it is worked on as (T-19). */
   gh_items: {
     keyed: true,
     columns: { id: 'str', repo: 'str', repo_name: 'str', kind: 'sym', number: 'i64', url: 'str', title: 'str', state: 'sym', author: 'str', updated: 'ts', task: 'str' },

@@ -1148,7 +1148,10 @@ export function openBoard(options: BoardOptions): Board {
     const settings: Record<string, Row[]> = entry.id === '' ? { settings: [{ id: 'github.repos', value: JSON.stringify(list.map((r) => (r === entry ? { ...r, id: repo.id } : r))) }] } : {};
     const short = repo.name.split('/').pop() ?? repo.name;
     if (item !== null) {
-      const known = store.get('gh_items', item.node);
+      // Known by repository id and number: both never change, and unlike node ids they are the same for a pull
+      // request whether GitHub describes it as itself or as the issue it also is.
+      const key = `${repo.id}#${item.number}`;
+      const known = store.get('gh_items', key);
       // An older delivery never undoes what a newer one said.
       if (known !== null && Date.parse(item.updated) < Date.parse(known.updated as string)) {
         commit('github.stale', 'github', known.task as string, '', { gh_deliveries: [receipt('stale')], ...settings }, [], true);
@@ -1163,7 +1166,7 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
           status: 'open', creator: 'github', assignee: '', reviewer: '', parent: '', priority: 1, review: 'required', result: '', created: at, updated: at, seq: seq + 1,
           outcome: `Resolved on GitHub: ${item.url}`, next: '', participants: '', private: repo.private ? 1 : 0, rev: 1, dependency: '', check: '',
         };
-        const g: Row = { id: item.node, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id };
+        const g: Row = { id: key, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id };
         commit('github.imported', 'github', t.id as string, `GitHub ${label} came in as ${t.id}: ${clip(item.title)}`, { tasks: [t], gh_items: [g], gh_deliveries: [receipt('applied')], ...settings });
         return { result: 'applied', task: t.id as string };
       }
@@ -1180,7 +1183,7 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       return { result: 'applied', task: t.id as string };
     }
     // Someone spoke or reviewed on GitHub: whoever holds the task is told where, not what.
-    const known = store.ask(`(select {from: gh_items where: (in repo (at rb_q 'q0))})`, { str: [repo.id] }).find((g) => Number(g.number) === ping!.number);
+    const known = store.get('gh_items', `${repo.id}#${ping!.number}`) ?? undefined;
     if (known === undefined) {
       commit('github.ignored', 'github', delivery, '', { gh_deliveries: [receipt('ignored')], ...settings }, [], true);
       return { result: 'ignored' };
