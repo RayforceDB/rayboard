@@ -62,6 +62,12 @@ test('a task is delegated, done, reviewed by another and approved', async () => 
   await board.call(dev, 'request_review', { task: 'T-1', reviewer: 'qa', note: 'see the branch' });
   await fails(board.call(dev, 'review_task', { task: 'T-1', verdict: 'approve' }), 'forbidden');
   await fails(board.call(lead, 'review_task', { task: 'T-1', verdict: 'approve' }), 'forbidden');
+  // A person is an administrator, not an implicit substitute for the named reviewer.
+  // Otherwise an agent asking a peer to check its work can be closed by any admin.
+  await fails(board.call(admin, 'review_task', { task: 'T-1', verdict: 'approve' }), 'forbidden');
+  expect(((await board.call(admin, 'list_reviews', { mine: true })) as unknown[]).length).toBe(0);
+  const human = await board.call(admin, 'get_task', { task: 'T-1' }) as { task: { status: string } };
+  expect(human.task.status).toBe('in_review');
   await fails(board.call(qa, 'review_task', { task: 'T-1', verdict: 'request_changes' }), 'invalid');
   await board.call(qa, 'review_task', { task: 'T-1', verdict: 'request_changes', comment: 'no test' });
   expect((await inbox(dev)).map((n) => n.type)).toEqual(['review.changes_requested']);
