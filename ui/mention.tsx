@@ -53,7 +53,7 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
         choose(candidates[picked % candidates.length]!);
         return;
       }
-      if (e.key === 'Escape') { e.preventDefault(); setDismissed(true); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDismissed(true); return; }
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); onSend(); }
   };

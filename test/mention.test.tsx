@@ -10,6 +10,7 @@ const ctx = { board, tick: 0, me: board.people[0], name: (id: string) => id, act
 test('mention picker filters, chooses with the keyboard, and replaces only the active token', async () => {
   let value = 'hello @m';
   let sent = 0;
+  let bubbled = false;
   let tree: ReturnType<typeof create>;
   (globalThis as { requestAnimationFrame?: (f: () => void) => number }).requestAnimationFrame = (f) => { f(); return 0; };
   await act(async () => { tree = create(<BoardContext.Provider value={ctx}><MentionInput value={value} onChange={(v) => { value = v; }} onSend={() => { sent++; }} placeholder="message" /></BoardContext.Provider>); });
@@ -21,7 +22,8 @@ test('mention picker filters, chooses with the keyboard, and replaces only the a
   expect(value).toBe('hello @morsel ');
   expect(sent).toBe(0);
   await act(async () => { input.props.onChange({ target: { value: 'hello @m', selectionStart: 8 } }); });
-  await act(async () => { input.props.onKeyDown({ key: 'Escape', preventDefault() {} }); });
+  await act(async () => { input.props.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() { bubbled = true; } }); });
+  expect(bubbled).toBe(true);
   expect(tree!.root.findAllByProps({ role: 'option' })).toHaveLength(0);
   // The picker lists only participants from the authorized snapshot, including the person typing.
   await act(async () => { input.props.onChange({ target: { value: 'hello @m', selectionStart: 8 } }); });
