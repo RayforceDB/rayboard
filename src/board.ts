@@ -460,9 +460,15 @@ export function openBoard(options: BoardOptions): Board {
         after: { type: 'integer', description: 'Only entries with a larger seq, oldest first.', min: 0 },
         before: { type: 'integer', description: 'Only entries with a smaller seq, to page back.', min: 1 },
         limit: { type: 'integer', description: 'At most this many (default 50).', min: 1, max: 500 },
+        subject: str('Only what happened to this task (T-12), newest first.', 40),
       },
       run(actor, p) {
         const limit = (p.limit as number | undefined) ?? 50;
+        if (p.subject !== undefined) {
+          // Reading the task first keeps a private task's history as hidden as the task.
+          const t = task(actor, p.subject as string);
+          return store.ask(`(select {from: events where: (in subject (at rb_q 'q0)) desc: seq take: ${limit}})`, { str: [t.id as string] });
+        }
         // What happened to a private task is hidden with the task.
         const not = { str: hidden(actor) };
         if (p.after !== undefined) return store.ask(`(select {from: events where: (and (> seq ${Math.floor(p.after as number)}) (not (in subject (at rb_q 'q0)))) asc: seq take: ${limit}})`, not);
@@ -759,6 +765,7 @@ export function openBoard(options: BoardOptions): Board {
           tasks: store.ask(`(select {from: tasks desc: seq take: 1000})`).map(({ body: _body, ...rest }) => rest),
           reviews: store.ask(`(select {from: reviews where: (== status 'pending) asc: seq})`),
           dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq)})`),
+          threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id)})`),
           enrollment: (store.get('settings', 'enroll')?.value ?? '') !== '',
           seq,
         };

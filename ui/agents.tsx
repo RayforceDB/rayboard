@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ago, api, usd, type Row } from './api';
-import { Badge, Copy, Empty, Field, Form, Modal, Secret, useCtx } from './kit';
+import { Avatar, Badge, Copy, Empty, Field, Form, Modal, Secret, agentState, useCtx } from './kit';
 
 const origin = (): string => location.origin;
 
@@ -27,9 +27,8 @@ export function Agents() {
           return (
             <article key={a.id} className={`agent ${a.status}`}>
               <div className="row">
-                <i className={`dot ${a.online ? 'on' : ''}`} title={a.online ? 'online' : 'offline'} />
-                <b>{a.name}</b>
-                <span className="muted">{a.kind}</span>
+                <Avatar id={a.id} size={30} />
+                <span className="who-state"><b>{a.name}</b><span className={`state ${agentState(board, a).tone}`}><i />{agentState(board, a).label} · {a.kind}</span></span>
                 <span className="grow" />
                 <Badge status={a.status} />
               </div>

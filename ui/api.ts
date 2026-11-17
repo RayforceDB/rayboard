@@ -10,6 +10,8 @@ export interface Snapshot {
   tasks: Row[];
   reviews: Row[];
   dms: Row[];
+  /** How many comments each task's thread holds, by task id in `chan`. */
+  threads?: Row[];
   enrollment: boolean;
   seq: number;
 }
@@ -106,4 +108,13 @@ export function ago(iso: string, now = Date.now()): string {
   return iso.slice(0, 10);
 }
 export const clock = (iso: string): string => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+/** "Today 10:14", "Yesterday 09:02", or the date: how a conversation says when. */
+export function when(iso: string, now = Date.now()): string {
+  const at = new Date(iso);
+  const time = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const day = (d: Date): string => d.toDateString();
+  if (day(at) === day(new Date(now))) return `Today ${time}`;
+  if (day(at) === day(new Date(now - 86_400_000))) return `Yesterday ${time}`;
+  return clock(iso);
+}
 export const usd = (n: number): string => `$${n.toFixed(2)}`;

@@ -3,17 +3,22 @@ import { createRoot } from 'react-dom/client';
 import { ago, api, useBoard, usd, type Row } from './api';
 import { Agents } from './agents';
 import { Chat } from './chat';
-import { Badge, BoardContext, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
+import { Icon, type IconName } from './icons';
+import { AgentStrip, Avatar, Badge, BoardContext, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
 
 /** The sidebar: what there is to look at, in the order of a working day. */
-const SECTIONS = [
-  { label: '', views: [['overview', 'Overview']] },
-  { label: 'Work', views: [['tasks', 'Tasks'], ['reviews', 'Reviews'], ['chat', 'Messages']] },
-  { label: 'Board', views: [['agents', 'Agents'], ['costs', 'Costs'], ['activity', 'Audit log']] },
-] as const;
-const VIEWS = SECTIONS.flatMap((s) => s.views.map(([view]) => view as string));
+const NAV: [view: string, label: string, icon: IconName][] = [
+  ['overview', 'Overview', 'home'],
+  ['tasks', 'Board', 'board'],
+  ['reviews', 'Reviews', 'review'],
+  ['chat', 'Discussions', 'chat'],
+  ['agents', 'Agents', 'agents'],
+  ['costs', 'Costs', 'costs'],
+  ['activity', 'Activity', 'activity'],
+];
+const VIEWS = NAV.map(([view]) => view);
 
 function App() {
   const [session, setSession] = useState<{ setup: boolean; user: Row | null; unsafe?: boolean } | null>(null);
@@ -97,33 +102,32 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
       <div className="shell">
         <nav>
           <Brand />
-          {SECTIONS.map((section) => (
-            <div key={section.label} className="section">
-              {section.label && <h3>{section.label}</h3>}
-              {section.views.map(([view, label]) => (
-                <button key={view} className={route.view === view ? 'on' : ''} onClick={() => open(view)}>
-                  {label}
-                  {counts[view] ? <span className="count">{counts[view]}</span> : null}
-                </button>
-              ))}
-            </div>
-          ))}
+          <div className="section">
+            {NAV.map(([view, label, icon]) => (
+              <button key={view} className={route.view === view ? 'on' : ''} onClick={() => open(view)}>
+                <Icon name={icon} size={18} />
+                {label}
+                {counts[view] ? <span className="count">{counts[view]}</span> : null}
+              </button>
+            ))}
+          </div>
           <div className="section roster">
             <h3>Agents</h3>
             {board.agents.filter((a) => a.status !== 'revoked').map((a) => (
               <button key={a.id} onClick={() => open('chat', `dm:${[me.id, a.id].sort().join(':')}`)} title={a.about || a.kind}>
-                <i className={`dot ${a.online ? 'on' : ''}`} />
+                <Avatar id={a.id} size={18} />
                 <span className="grow">{a.name}</span>
-                {a.status !== 'active' ? <span className="state">{a.status}</span> : a.online ? <span className="state live-text">live</span> : null}
+                {a.status !== 'active' ? <span className="state">{a.status}</span> : <i className={`dot ${a.online ? 'on' : ''}`} title={a.online ? 'online' : 'offline'} />}
               </button>
             ))}
           </div>
           <div className="grow" />
           <BuiltOn />
           <div className="me">
-            <span className={`live ${live ? 'on' : ''}`} title={live ? 'live' : 'reconnecting'} />
+            <Avatar id={me.id} size={26} />
             {unsafe ? <span className="grow name">{me.name}</span> : <button className="ghost grow name" onClick={() => setChanging(true)} title="Change password">{me.name}</button>}
-            {unsafe ? <span className="unsafe" title="Nobody signs in: whoever reaches this port oversees the board">unsafe mode</span> : <button className="ghost" onClick={() => void api.logout().then(onSignedOut)}>Sign out</button>}
+            <span className={`live ${live ? 'on' : ''}`} title={live ? 'live' : 'reconnecting'} />
+            {unsafe ? <span className="unsafe" title="Nobody signs in: whoever reaches this port oversees the board">unsafe</span> : <button className="ghost icon" onClick={() => void api.logout().then(onSignedOut)} aria-label="Sign out" title="Sign out"><Icon name="out" /></button>}
           </div>
         </nav>
         <main>
@@ -170,7 +174,8 @@ function Overview() {
   const held = board.tasks.filter((t) => t.status === 'waiting' || t.status === 'blocked');
   return (
     <>
-      <header className="head"><h2>Overview</h2></header>
+      <header className="title-bar"><div className="grow"><h1>Overview</h1><p className="muted">What the agents are doing, and what waits on you.</p></div></header>
+      <AgentStrip />
       <section className="tiles">
         <button className="tile" onClick={() => open('agents')}><b>{active.filter((a) => a.online).length}<small> / {active.length}</small></b><span>agents online</span></button>
         <button className="tile" onClick={() => open('tasks')}><b>{count('in_progress')}</b><span>tasks in progress</span></button>

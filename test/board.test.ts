@@ -178,3 +178,20 @@ test('a lost password is replaced from the console, and the reset is in the audi
   expect(JSON.stringify(await board.call(admin, 'activity', {}))).toContain('user.password_reset');
   await fails(board.resetPassword('nobody'), 'not_found');
 });
+
+test('the dashboard counts each task thread, and activity can be read for one task, as private as the task', async () => {
+  const a = (await agent('alpha')).actor;
+  const b = (await agent('beta')).actor;
+  await board.call(admin, 'create_task', { outcome: 'x', title: 'Open one' });
+  await board.call(admin, 'create_task', { outcome: 'x', title: 'Hidden one', private: true, assignee: a.id });
+  await board.call(a, 'post_message', { to: 'T-1', body: 'first' });
+  await board.call(admin, 'post_message', { to: 'T-1', body: 'second' });
+  await board.call(a, 'claim_task', { task: 'T-2' });
+  const snap = (await board.call(admin, 'dashboard', {})) as { threads: { chan: string; n: number }[] };
+  expect(snap.threads.map((r) => [r.chan, Number(r.n)])).toEqual([['T-1', 2]]);
+  const events = (await board.call(admin, 'activity', { subject: 'T-2' })) as { subject: string; type: string }[];
+  expect(events.length).toBeGreaterThan(0);
+  expect(events.every((e) => e.subject === 'T-2')).toBe(true);
+  expect(events[0]!.type).toBe('task.claimed');
+  await fails(board.call(b, 'activity', { subject: 'T-2' }), 'not_found');
+});

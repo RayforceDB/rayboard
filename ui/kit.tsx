@@ -1,17 +1,27 @@
-import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Icon, type IconName } from './icons';
 import type { Row, Snapshot } from './api';
-import markOnDark from './assets/mark-on-dark.svg';
-import markOnLight from './assets/mark-on-light.svg';
 import rayforceOnDark from './assets/rayforce-on-dark.svg';
 import rayforceOnLight from './assets/rayforce-on-light.svg';
 
-/** The RayforceDB mark with rayboard's name set the way RayforceDB sets its own. */
+/** rayboard's mark: an R of rounded blocks, the bars of its bowl lighter, as cards stacked in a lane. */
+export function Mark({ size = 30 }: { size?: number }) {
+  return (
+    <svg className="mark" width={size} height={size * 0.9} viewBox="-0.5 -0.5 30 27" aria-hidden="true">
+      <rect x="0.5" y="0.5" width="10.5" height="5.6" rx="1.6" fill="#ffa066" />
+      <rect x="0.5" y="8.2" width="10.5" height="5.8" rx="1.6" fill="#ff8d4a" />
+      <path d="M10 0.5H22a6.75 6.75 0 0 1 0 13.5H10z" fill="#ff6a13" />
+      <rect x="0.5" y="15.6" width="8.6" height="9.9" rx="1.6" fill="#ff6d1a" />
+      <path d="M11.6 15.6H23.4l4.8 7.1c.9 1.4.3 2.8-1.4 2.8H16z" fill="#ff6a13" stroke="#ff6a13" strokeWidth="0.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function Brand() {
   return (
     <h1 className="brand">
-      <img className="on-dark" src={markOnDark} alt="" />
-      <img className="on-light" src={markOnLight} alt="" />
-      <span>RAY<b>BOARD</b></span>
+      <Mark />
+      <span>rayboard</span>
     </h1>
   );
 }
@@ -48,16 +58,105 @@ export function Badge({ status }: { status: string }) {
   return <span className={`badge s-${status}`}>{STATUS_LABEL[status] ?? status}</span>;
 }
 
-export function Who({ id, empty = 'nobody' }: { id: string; empty?: string }) {
-  const { name, board } = useCtx();
+/** An agent is a coloured shape, the same one wherever it appears; a person is their initial. */
+const SHAPES = [
+  { body: 'M12 3 22 20H2z', facet: 'M12 3 12 20H2z' },
+  { body: 'M12 2 21 7v10l-9 5-9-5V7z', facet: 'M12 2 21 7l-9 5-9-5z' },
+  { body: 'M12 2 22 12 12 22 2 12z', facet: 'M12 2 12 22 2 12z' },
+  { body: 'M12 2.5a9.5 9.5 0 1 1 0 19a9.5 9.5 0 1 1 0-19z', facet: 'M12 2.5a9.5 9.5 0 0 0 0 19z' },
+  { body: 'M12 2 21.5 9 18 21H6L2.5 9z', facet: 'M12 2 12 21H6L2.5 9z' },
+  { body: 'M4 4h16v16H4z', facet: 'M4 4h16L4 20z' },
+];
+const HUES = ['#8b5cf6', '#f5a524', '#22b35e', '#3b82f6', '#ec4899', '#14b8a6', '#f97316'];
+const hash = (s: string): number => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+export function Avatar({ id, size = 20 }: { id: string; size?: number }) {
+  const { board, name } = useCtx();
+  const agent = board.agents.some((a) => a.id === id);
+  if (!agent) return <span className="avatar person" style={{ width: size, height: size, fontSize: size * 0.5 }} aria-hidden="true">{name(id).slice(0, 1).toUpperCase()}</span>;
+  const h = hash(id);
+  const shape = SHAPES[h % SHAPES.length]!;
+  return (
+    <svg className="avatar" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d={shape.body} fill={HUES[(h >>> 3) % HUES.length]} />
+      <path d={shape.facet} fill="#fff" opacity="0.28" />
+    </svg>
+  );
+}
+
+export function Who({ id, empty = 'nobody', size = 18 }: { id: string; empty?: string; size?: number }) {
+  const { name } = useCtx();
   if (id === '') return <span className="who none">{empty}</span>;
   if (id === 'system' || id === 'enrollment') return <span className="who none">{id}</span>;
-  const agent = board.agents.find((a) => a.id === id);
+  return <span className="who"><Avatar id={id} size={size} />{name(id)}</span>;
+}
+
+export const PRIORITY = ['Low', 'Medium', 'High', 'Urgent'];
+const PRIORITY_ICON: IconName[] = ['low', 'medium', 'high', 'high'];
+export function Prio({ level }: { level: number }) {
+  return <span className={`prio p${level}`}><Icon name={PRIORITY_ICON[level] ?? 'medium'} size={14} />{PRIORITY[level] ?? level}</span>;
+}
+
+const STATUS_ICON: Record<string, IconName> = { open: 'circle', in_progress: 'progress', waiting: 'clock', blocked: 'ban', in_review: 'review', changes_requested: 'undo', done: 'check', cancelled: 'x' };
+export function StatusPill({ status }: { status: string }) {
+  return <span className={`pill s-${status}`}><Icon name={STATUS_ICON[status] ?? 'circle'} size={15} />{STATUS_LABEL[status] ?? status}</span>;
+}
+
+/** What an agent is doing now, as the strip above the board says it. */
+export function agentState(board: Snapshot, a: Row): { label: string; tone: 'good' | 'warn' | 'bad' | 'off' } {
+  if (a.status === 'pending') return { label: 'Awaiting approval', tone: 'warn' };
+  if (a.status === 'paused') return { label: 'Paused', tone: 'bad' };
+  if (a.status === 'revoked') return { label: 'Revoked', tone: 'off' };
+  if (board.tasks.some((t) => t.assignee === a.id && t.status === 'in_progress')) return { label: 'Working', tone: 'good' };
+  if (board.reviews.some((r) => r.reviewer === a.id)) return { label: 'Reviewing', tone: 'warn' };
+  return a.online ? { label: 'Available', tone: 'good' } : { label: 'Offline', tone: 'off' };
+}
+
+export function AgentStrip() {
+  const { board, me, open } = useCtx();
+  const agents = board.agents.filter((a) => a.status !== 'revoked');
+  if (agents.length === 0) return null;
   return (
-    <span className={`who ${agent ? 'is-agent' : 'is-person'}`}>
-      {agent && <i className={`dot ${agent.online ? 'on' : ''}`} title={agent.online ? 'online' : 'offline'} />}
-      {name(id)}
-    </span>
+    <section className="strip" aria-label="Agents">
+      {agents.map((a) => {
+        const state = agentState(board, a);
+        return (
+          <button key={a.id} onClick={() => open('chat', `dm:${[me.id, a.id].sort().join(':')}`)} title={a.about || a.kind}>
+            <Avatar id={a.id} size={34} />
+            <span className="who-state"><b>{a.name}</b><span className={`state ${state.tone}`}><i />{state.label}</span></span>
+          </button>
+        );
+      })}
+    </section>
+  );
+}
+
+/** A button that opens a short list of actions under it. */
+export function Menu({ items, label = 'More' }: { items: { label: string; icon?: IconName; danger?: boolean; run: () => void }[]; label?: string }) {
+  const [shown, setShown] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!shown) return;
+    const away = (e: MouseEvent): void => {
+      if (!box.current?.contains(e.target as Node)) setShown(false);
+    };
+    window.addEventListener('mousedown', away);
+    return () => window.removeEventListener('mousedown', away);
+  }, [shown]);
+  if (items.length === 0) return null;
+  return (
+    <div className="menu" ref={box}>
+      <button className="ghost icon" aria-label={label} aria-expanded={shown} onClick={() => setShown(!shown)}><Icon name="more" /></button>
+      {shown && (
+        <div className="menu-list" role="menu">
+          {items.map((it) => (
+            <button key={it.label} role="menuitem" className={it.danger ? 'danger' : ''} onClick={() => { setShown(false); it.run(); }}>
+              {it.icon && <Icon name={it.icon} />}{it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -74,7 +173,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2>{title}</h2>
-          <button className="ghost icon" onClick={onClose} aria-label="Close">×</button>
+          <button className="ghost icon" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
         </header>
         {children}
       </div>

@@ -1,79 +1,118 @@
-import { useEffect, useState } from 'react';
-import { ago, api, clock, usd, type Row } from './api';
-import { Badge, Empty, Field, Form, Modal, STATUS_LABEL, Who, useCtx } from './kit';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ago, api, clock, usd, when, type Row } from './api';
+import { Icon } from './icons';
+import { AgentStrip, Avatar, Badge, Empty, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
 import { Prose } from './prose';
 
-const COLUMNS = ['open', 'in_progress', 'waiting', 'in_review', 'changes_requested', 'done'] as const;
-const PRIORITY = ['Low', 'Normal', 'High', 'Urgent'];
+/** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
+const LANES = [
+  { key: 'open', label: 'Backlog', has: ['open'] },
+  { key: 'in_progress', label: 'In progress', has: ['in_progress', 'changes_requested'] },
+  { key: 'waiting', label: 'Waiting', has: ['waiting', 'blocked'] },
+  { key: 'in_review', label: 'Review', has: ['in_review'] },
+  { key: 'done', label: 'Done', has: ['done'] },
+] as const;
+const CANCELLED = { key: 'cancelled', label: 'Cancelled', has: ['cancelled'] } as const;
 
 export function Tasks({ item }: { item: string }) {
-  const { board, open } = useCtx();
+  const { board, open, name, me } = useCtx();
   const [creating, setCreating] = useState(false);
-  const [layout, setLayout] = useState<'list' | 'board'>('list');
+  const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
-  if (item) return <TaskDetail id={item} onClose={() => open('tasks')} />;
+  const [query, setQuery] = useState('');
+  const pick = (l: 'list' | 'board'): void => {
+    setLayout(l);
+    try { localStorage.setItem('rb.layout', l); } catch { /* only a convenience */ }
+  };
   const cancelled = board.tasks.filter((t) => t.status === 'cancelled').length;
   const now = Date.parse(board.now);
-  // Waiting and blocked share a group: both are work that stands still, and each row says which.
-  const groups = [...COLUMNS, ...(showAll ? (['cancelled'] as const) : [])].map((status) => {
-    const tasks = board.tasks.filter((t) => t.status === status || (status === 'waiting' && t.status === 'blocked'));
-    return { status, tasks: status === 'done' || status === 'cancelled' ? tasks.slice(0, 30) : tasks.sort((x, y) => y.priority - x.priority || y.seq - x.seq), total: tasks.length };
+  const comments = new Map((board.threads ?? []).map((r) => [r.chan as string, r.n as number]));
+  const q = query.trim().toLowerCase();
+  const shown = board.tasks.filter((t) => q === '' || `${t.id} ${t.title} ${name(t.assignee)}`.toLowerCase().includes(q));
+  const lanes = [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
+    const tasks = shown.filter((t) => (lane.has as readonly string[]).includes(t.status));
+    const ordered = lane.key === 'done' || lane.key === 'cancelled' ? tasks.slice(0, 30) : tasks.sort((x, y) => y.priority - x.priority || y.seq - x.seq);
+    return { ...lane, tasks: ordered, total: tasks.length };
   });
+  /** A review this person can decide is the one thing on the board waiting on them. */
+  const mine = new Set(board.reviews.filter((r) => r.requester !== me.id && (r.reviewer === '' || r.reviewer === me.id)).map((r) => r.task as string));
+
   return (
-    <>
-      <header className="head">
-        <h2>Tasks</h2>
-        <div className="grow" />
-        {cancelled > 0 && <label className="check"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> {cancelled} cancelled</label>}
-        <div className="seg" role="group" aria-label="Layout">
-          <button className={layout === 'list' ? 'on' : ''} onClick={() => setLayout('list')}>List</button>
-          <button className={layout === 'board' ? 'on' : ''} onClick={() => setLayout('board')}>Board</button>
-        </div>
-        <button className="primary" onClick={() => setCreating(true)}>New task</button>
-      </header>
-      {board.tasks.length === 0 && <Empty>No tasks yet. Create one, or let an agent do it with <code>create_task</code>.</Empty>}
-      {layout === 'list' && board.tasks.length > 0 && (
-        <div className="groups">
-          {groups.filter((g) => g.total > 0).map((g) => (
-            <section key={g.status}>
-              <h3>{g.status === 'waiting' ? 'Waiting / blocked' : STATUS_LABEL[g.status]} <span>{g.total}</span></h3>
-              {g.tasks.map((t) => (
-                <button key={t.id} className="task-row" onClick={() => open('tasks', t.id)}>
-                  <i className={`ring s-${t.status}`} />
-                  <code>{t.id}</code>
-                  <span className="title">{t.title}</span>
-                  {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
-                  <span className="grow" />
-                  {t.private === 1 && <span className="lock">private</span>}
-                  {t.priority >= 2 && <span className={`prio p${t.priority}`}>{PRIORITY[t.priority]?.toLowerCase()}</span>}
-                  {t.parent && <span className="muted">in {t.parent}</span>}
-                  <Who id={t.assignee} empty="unclaimed" />
-                  <time>{ago(t.updated, now)}</time>
-                </button>
-              ))}
-            </section>
-          ))}
-        </div>
-      )}
-      {layout === 'board' && board.tasks.length > 0 && (
-        <div className="kanban">
-          {groups.map((g) => (
-            <section key={g.status} className="lane">
-              <h3>{g.status === 'waiting' ? 'Waiting / blocked' : STATUS_LABEL[g.status]} <span>{g.total}</span></h3>
-              {g.tasks.map((t) => (
-                <button key={t.id} className="card-task" onClick={() => open('tasks', t.id)}>
-                  <span className="row"><i className={`ring s-${t.status}`} /><code>{t.id}</code><span className="grow" />{t.priority >= 2 && <span className={`prio p${t.priority}`}>{PRIORITY[t.priority]?.toLowerCase()}</span>}</span>
-                  <b>{t.title}</b>
-                  {t.dependency && <span className="dep">{t.status} on {t.dependency}</span>}
-                  <span className="row">{t.private === 1 && <span className="lock">private</span>}<Who id={t.assignee} empty="unclaimed" /><span className="grow" /><time>{ago(t.updated, now)}</time></span>
-                </button>
-              ))}
-            </section>
-          ))}
-        </div>
-      )}
+    <div className="board-view">
+      <div className="board-main">
+        <header className="title-bar">
+          <div className="grow">
+            <h1>Board</h1>
+            <p className="muted">Shared work. Visible progress.</p>
+          </div>
+          <div className="seg" role="group" aria-label="Layout">
+            <button className={layout === 'board' ? 'on' : ''} onClick={() => pick('board')}><Icon name="board" />Board</button>
+            <button className={layout === 'list' ? 'on' : ''} onClick={() => pick('list')}><Icon name="list" />List</button>
+          </div>
+          <label className="search"><Icon name="search" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…" aria-label="Search tasks" /></label>
+          <button className="primary" onClick={() => setCreating(true)}><Icon name="plus" />New task</button>
+        </header>
+        <AgentStrip />
+        {cancelled > 0 && <label className="check cancelled-toggle"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show {cancelled} cancelled</label>}
+        {board.tasks.length === 0 && <Empty>No tasks yet. Create one, or let an agent do it with <code>create_task</code>.</Empty>}
+        {layout === 'board' && board.tasks.length > 0 && (
+          <div className="kanban">
+            {lanes.map((lane) => (
+              <section key={lane.key} className="lane">
+                <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
+                {lane.tasks.map((t) => (
+                  <button key={t.id} className={`card-task ${t.id === item ? 'on' : ''}`} onClick={() => open('tasks', t.id)}>
+                    <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} /></span>
+                    <b>{t.title}</b>
+                    <Tags t={t} />
+                    <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
+                    {mine.has(t.id) && <span className="ask"><Icon name="alert" />Waiting for your input</span>}
+                    {t.status === 'changes_requested' && <span className="ask"><Icon name="undo" />Changes requested</span>}
+                    {t.dependency && <span className={`ask ${t.status === 'blocked' ? 'bad' : 'calm'}`}><Icon name={t.status === 'blocked' ? 'ban' : 'clock'} />{STATUS_LABEL[t.status]} on {t.dependency}</span>}
+                  </button>
+                ))}
+              </section>
+            ))}
+          </div>
+        )}
+        {layout === 'list' && board.tasks.length > 0 && (
+          <div className="groups">
+            {lanes.filter((g) => g.total > 0).map((g) => (
+              <section key={g.key}>
+                <h3>{g.label}<span className="count-pill">{g.total}</span></h3>
+                {g.tasks.map((t) => (
+                  <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''}`} onClick={() => open('tasks', t.id)}>
+                    <code>{t.id}</code>
+                    <span className="title">{t.title}</span>
+                    {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
+                    {mine.has(t.id) && <span className="ask inline"><Icon name="alert" />your input</span>}
+                    <span className="grow" />
+                    {t.private === 1 && <Icon name="lock" className="muted" />}
+                    <Prio level={t.priority} />
+                    <Who id={t.assignee} empty="Unclaimed" />
+                    <span className="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span>
+                    <time>{ago(t.updated, now)}</time>
+                  </button>
+                ))}
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+      {item && <TaskDrawer key={item} id={item} onClose={() => open('tasks')} />}
       {creating && <NewTask onClose={() => setCreating(false)} />}
-    </>
+    </div>
+  );
+}
+
+/** What a card says about a task besides its title: where it belongs and who may see it. */
+function Tags({ t }: { t: Row }) {
+  if (!t.parent && t.private !== 1) return null;
+  return (
+    <span className="tags">
+      {t.parent && <span className="tag"><Icon name="subtask" size={14} />in {t.parent}</span>}
+      {t.private === 1 && <span className="tag"><Icon name="lock" size={14} />Private</span>}
+    </span>
   );
 }
 
@@ -123,9 +162,11 @@ function NewTask({ onClose, parent = '' }: { onClose: () => void; parent?: strin
   );
 }
 
-function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
-  const { act, tick, board, me, open } = useCtx();
+function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
+  const { act, tick, board, me, open, name } = useCtx();
   const [d, setD] = useState<{ task: Row; thread: Row[]; evidence: Row[]; reviews: Row[]; subtasks: Row[]; cost: number } | null>(null);
+  const [events, setEvents] = useState<Row[]>([]);
+  const [tab, setTab] = useState<'discussion' | 'details' | 'activity'>('discussion');
   const [result, setResult] = useState('');
   const [proof, setProof] = useState('');
   const [missing, setMissing] = useState('');
@@ -133,9 +174,21 @@ function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [verdict, setVerdict] = useState('');
   const [to, setTo] = useState('');
   const [sub, setSub] = useState(false);
+  const [copied, setCopied] = useState(false);
   useEffect(() => void api.call('get_task', { task: id }).then(setD, (e: Error) => setMissing(e.message)), [id, tick]);
-  if (missing) return <Modal title={id} onClose={onClose}><div className="form"><p className="error">{missing}</p></div></Modal>;
-  if (d === null) return null;
+  useEffect(() => {
+    if (tab === 'activity') void api.call<Row[]>('activity', { subject: id, limit: 100 }).then(setEvents, () => setEvents([]));
+  }, [id, tick, tab]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !document.querySelector('.scrim')) onClose();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [onClose]);
+  const shell = (body: ReactNode) => <aside className="drawer" aria-label={`Task ${id}`}>{body}</aside>;
+  if (missing) return shell(<><header className="drawer-bar"><code>{id}</code><span className="grow" /><button className="ghost icon" onClick={onClose} aria-label="Close"><Icon name="x" /></button></header><p className="error pad">{missing}</p></>);
+  if (d === null) return shell(null);
   const t = d.task;
   const live = t.status !== 'done' && t.status !== 'cancelled';
   const review = d.reviews.find((r) => r.status === 'pending');
@@ -145,32 +198,48 @@ function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
   };
   const now = Date.parse(board.now);
   const decided = d.reviews.filter((r) => r.status !== 'pending');
-  return (
+  const copyLink = (): void => void navigator.clipboard.writeText(`${location.origin}${location.pathname}#tasks/${encodeURIComponent(t.id)}`).then(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  });
+  const menu = [
+    ...(live ? [{ label: 'Add subtask', icon: 'subtask' as const, run: () => setSub(true) }] : []),
+    ...(!live ? [{ label: 'Reopen', icon: 'undo' as const, run: run('reopen_task') }] : []),
+    ...(live ? [{ label: 'Cancel task', icon: 'ban' as const, danger: true, run: run('cancel_task', { rev: t.rev }) }] : []),
+  ];
+
+  return shell(
     <>
-      <header className="head">
-        <nav className="crumbs"><button className="link" onClick={onClose}>Tasks</button><span>›</span><code>{t.id}</code></nav>
-        <div className="grow" />
-        {live && <button onClick={() => setSub(true)}>Add subtask</button>}
-        {!live && <button onClick={run('reopen_task')}>Reopen</button>}
+      <header className="drawer-bar">
+        <code>{t.id}</code>
+        <span className="grow" />
+        <button className="ghost icon" onClick={copyLink} aria-label="Copy link" title={copied ? 'Copied' : 'Copy link'}><Icon name={copied ? 'check' : 'link'} /></button>
+        <Menu items={menu} />
+        <button className="ghost icon" onClick={onClose} aria-label="Close"><Icon name="x" /></button>
       </header>
-      <div className="page">
-        <article>
-          <h1 className="title"><i className={`ring s-${t.status}`} />{t.title}</h1>
+      <div className="drawer-scroll">
+        <div className="drawer-head">
+          <h2>{t.title}</h2>
+          <StatusPill status={t.status} />
+          <div className="facts">
+            <span className="muted"><Icon name="user" />Assignee</span>
+            <Who id={t.assignee} empty="Unclaimed" />
+            <i className="sep" />
+            <Prio level={t.priority} />
+            {t.private === 1 && <><i className="sep" /><span className="muted"><Icon name="lock" />Private</span></>}
+            {t.parent && <><i className="sep" /><button className="link" onClick={() => open('tasks', t.parent)}>in {t.parent}</button></>}
+          </div>
+          {(t.body || t.outcome) && <Prose className="lead">{t.body || t.outcome}</Prose>}
           {t.dependency && (
-            <section className="callout">
-              <h4><Badge status={t.status} /> on {t.dependency}</h4>
-              <p>Next check: {t.check}</p>
+            <section className={`callout ${t.status === 'blocked' ? 'bad' : ''}`}>
+              <h4><Icon name={t.status === 'blocked' ? 'ban' : 'clock'} />{STATUS_LABEL[t.status]} on {t.dependency}</h4>
+              {t.check && <p>Next check: {t.check}</p>}
             </section>
           )}
-          {t.outcome && <><h4>Outcome</h4><Prose>{t.outcome}</Prose></>}
-          {t.body && <><h4>Description</h4><Prose>{t.body}</Prose></>}
-          {t.next && <><h4>Next action</h4><Prose>{t.next}</Prose></>}
-          {t.result && <><h4>{t.status === 'cancelled' ? 'Reason' : 'Result'}</h4><Prose>{t.result}</Prose></>}
-
           {review && (
-            <section className="callout">
-              <h4>Review asked by <Who id={review.requester} />{review.reviewer ? <> of <Who id={review.reviewer} /></> : ', open to anyone'}</h4>
-              <Prose>{review.note}</Prose>
+            <section className="callout ask-box">
+              <h4><Icon name="alert" /><span>Review asked by <Who id={review.requester} />{review.reviewer ? <> of <Who id={review.reviewer} /></> : ', open to anyone'}</span></h4>
+              {review.note && <Prose>{review.note}</Prose>}
               {review.requester !== me.id && (
                 <>
                   <textarea value={verdict} onChange={(e) => setVerdict(e.target.value)} rows={2} placeholder="Your comment (required to request changes)" />
@@ -182,85 +251,111 @@ function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
               )}
             </section>
           )}
+        </div>
 
-          {d.subtasks.length > 0 && (
-            <>
-              <h4>Subtasks</h4>
-              <div className="rows">
-                {d.subtasks.map((s) => <button key={s.id} className="task-row" onClick={() => open('tasks', s.id)}><i className={`ring s-${s.status}`} /><code>{s.id}</code><span className="title">{s.title}</span><span className="grow" /><Who id={s.assignee} empty="unclaimed" /><Badge status={s.status} /></button>)}
-              </div>
-            </>
-          )}
+        <nav className="tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'discussion'} className={tab === 'discussion' ? 'on' : ''} onClick={() => setTab('discussion')}><Icon name="comment" />Discussion ({d.thread.length})</button>
+          <button role="tab" aria-selected={tab === 'details'} className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}><Icon name="list" />Details</button>
+          <button role="tab" aria-selected={tab === 'activity'} className={tab === 'activity' ? 'on' : ''} onClick={() => setTab('activity')}><Icon name="activity" />Activity</button>
+        </nav>
 
-          <h4>Evidence and external actions</h4>
-          {d.evidence.length === 0 && <p className="muted">Nothing is attached yet.</p>}
-          <ul className="list plain">
-            {d.evidence.map((e) => (
-              <li key={e.id}><span className={`badge ${e.kind === 'external_action' ? 's-waiting' : ''}`}>{e.kind === 'external_action' ? `done outside: ${e.key}` : 'evidence'}</span><span className="grow wraps">{e.text}</span><Who id={e.author} /><time>{clock(e.ts)}</time></li>
-            ))}
-          </ul>
-          {live && (
-            <div className="composer">
-              <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="Attach evidence: a commit, a test run, a link" maxLength={5000} />
-              <button disabled={proof.trim() === ''} onClick={() => void act(() => api.call('add_evidence', { task: t.id, text: proof })).then((ok) => ok && setProof(''))}>Attach</button>
-            </div>
-          )}
-
-          <h4>Comments <span className="muted">{d.thread.length || ''}</span></h4>
-          {d.thread.length === 0 && <p className="muted">Nobody has written here yet.</p>}
+        {tab === 'discussion' && (
           <div className="thread">
-            {d.thread.map((m) => <div key={m.id} className="msg"><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
-          </div>
-          <div className="composer">
-            <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder={`Comment on ${t.id}; @name notifies`} onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && void say()} />
-            <button className="primary" onClick={() => void say()} disabled={comment.trim() === ''}>Send</button>
-          </div>
-        </article>
-
-        <aside className="props">
-          <h3>Properties</h3>
-          <dl>
-            <dt>Status</dt><dd><Badge status={t.status} /></dd>
-            <dt>Held by</dt><dd><Who id={t.assignee} empty="nobody" /></dd>
-            <dt>Created by</dt><dd><Who id={t.creator} /></dd>
-            {t.participants && <><dt>Participants</dt><dd className="stack">{(t.participants as string).split(' ').map((p) => <Who key={p} id={p} />)}</dd></>}
-            <dt>Priority</dt><dd>{PRIORITY[t.priority]}</dd>
-            <dt>Review</dt><dd>{t.review}</dd>
-            <dt>Visible to</dt><dd>{t.private === 1 ? <span className="lock">its parties only</span> : 'everyone'}</dd>
-            {t.parent && <><dt>Part of</dt><dd><button className="link" onClick={() => open('tasks', t.parent)}>{t.parent}</button></dd></>}
-            {d.cost > 0 && <><dt>Cost</dt><dd>{usd(d.cost)}</dd></>}
-            <dt>Revision</dt><dd>{t.rev}</dd>
-            <dt>Created</dt><dd>{ago(t.created, now)}</dd>
-            <dt>Updated</dt><dd>{ago(t.updated, now)}</dd>
-          </dl>
-
-          {live && t.status !== 'in_review' && (
-            <>
-              <h3>Hand to</h3>
-              <div className="row">
-                <Assignee value={to} onChange={setTo} none="Choose…" />
-                <button disabled={to === '' || to === t.assignee} onClick={() => void act(() => api.call('delegate_task', { task: t.id, to, rev: t.rev })).then((ok) => ok && setTo(''))}>Hand over</button>
+            {d.thread.length === 0 && <p className="muted pad">Nobody has written here yet.</p>}
+            {d.thread.map((m) => (
+              <div key={m.id} className="post">
+                <Avatar id={m.author} size={28} />
+                <div className="post-body">
+                  <div className="row"><b>{name(m.author)}</b><time>{when(m.ts, now)}</time></div>
+                  <Prose>{m.body}</Prose>
+                </div>
               </div>
-              {t.assignee !== '' && <button onClick={run('release_task', { rev: t.rev })}>Unassign</button>}
-            </>
-          )}
-          {live && (
-            <>
-              <h3>Mark done</h3>
-              <textarea value={result} onChange={(e) => setResult(e.target.value)} rows={2} placeholder="What came of it and what shows it" maxLength={20000} />
-              <button disabled={result.trim() === ''} onClick={() => void act(() => api.call('complete_task', { task: t.id, result, rev: t.rev })).then((ok) => ok && setResult(''))}>Mark done</button>
-              <button className="danger" onClick={run('cancel_task', { rev: t.rev })}>Cancel task</button>
-            </>
-          )}
-          {decided.length > 0 && (
-            <>
-              <h3>Past reviews</h3>
-              {decided.map((r) => <div key={r.id} className="past"><span className="row"><Badge status={r.status} /><Who id={r.decider} /></span><p className="muted">{r.comment || r.note}</p></div>)}
-            </>
-          )}
-        </aside>
+            ))}
+          </div>
+        )}
+
+        {tab === 'details' && (
+          <div className="details">
+            {t.outcome && t.body && <><h4>Outcome</h4><Prose>{t.outcome}</Prose></>}
+            {t.next && <><h4>Next action</h4><Prose>{t.next}</Prose></>}
+            {t.result && <><h4>{t.status === 'cancelled' ? 'Reason' : 'Result'}</h4><Prose>{t.result}</Prose></>}
+
+            {d.subtasks.length > 0 && (
+              <>
+                <h4>Subtasks</h4>
+                <div className="rows">
+                  {d.subtasks.map((s) => <button key={s.id} className="task-row" onClick={() => open('tasks', s.id)}><code>{s.id}</code><span className="title">{s.title}</span><span className="grow" /><Badge status={s.status} /></button>)}
+                </div>
+              </>
+            )}
+
+            <h4>Evidence and external actions</h4>
+            {d.evidence.length === 0 && <p className="muted">Nothing is attached yet.</p>}
+            <ul className="list plain">
+              {d.evidence.map((e) => (
+                <li key={e.id}><span className={`badge ${e.kind === 'external_action' ? 's-waiting' : ''}`}>{e.kind === 'external_action' ? `done outside: ${e.key}` : 'evidence'}</span><span className="grow wraps">{e.text}</span><Who id={e.author} /><time>{clock(e.ts)}</time></li>
+              ))}
+            </ul>
+            {live && (
+              <div className="composer slim">
+                <input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="A commit, a test run, a link" maxLength={5000} />
+                <button disabled={proof.trim() === ''} onClick={() => void act(() => api.call('add_evidence', { task: t.id, text: proof })).then((ok) => ok && setProof(''))}><Icon name="clip" />Attach</button>
+              </div>
+            )}
+
+            <h4>Properties</h4>
+            <dl className="props">
+              <dt>Created by</dt><dd><Who id={t.creator} /></dd>
+              {t.participants && <><dt>Participants</dt><dd className="stack">{(t.participants as string).split(' ').map((p) => <Who key={p} id={p} />)}</dd></>}
+              <dt>Review</dt><dd>{t.review}</dd>
+              <dt>Visible to</dt><dd>{t.private === 1 ? 'its parties only' : 'everyone'}</dd>
+              {d.cost > 0 && <><dt>Cost</dt><dd>{usd(d.cost)}</dd></>}
+              <dt>Revision</dt><dd>{t.rev}</dd>
+              <dt>Created</dt><dd>{ago(t.created, now)}</dd>
+              <dt>Updated</dt><dd>{ago(t.updated, now)}</dd>
+            </dl>
+
+            {live && t.status !== 'in_review' && (
+              <>
+                <h4>Hand to</h4>
+                <div className="row">
+                  <Assignee value={to} onChange={setTo} none="Choose…" />
+                  <button disabled={to === '' || to === t.assignee} onClick={() => void act(() => api.call('delegate_task', { task: t.id, to, rev: t.rev })).then((ok) => ok && setTo(''))}>Hand over</button>
+                  {t.assignee !== '' && <button onClick={run('release_task', { rev: t.rev })}>Unassign</button>}
+                </div>
+              </>
+            )}
+            {live && (
+              <>
+                <h4>Mark done</h4>
+                <textarea value={result} onChange={(e) => setResult(e.target.value)} rows={2} placeholder="What came of it and what shows it" maxLength={20000} />
+                <div className="row end"><button className="primary" disabled={result.trim() === ''} onClick={() => void act(() => api.call('complete_task', { task: t.id, result, rev: t.rev })).then((ok) => ok && setResult(''))}><Icon name="check" />Mark done</button></div>
+              </>
+            )}
+            {decided.length > 0 && (
+              <>
+                <h4>Past reviews</h4>
+                {decided.map((r) => <div key={r.id} className="past"><span className="row"><Badge status={r.status} /><Who id={r.decider} /></span><p className="muted">{r.comment || r.note}</p></div>)}
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === 'activity' && (
+          <ul className="timeline">
+            {events.length === 0 && <li className="muted">Nothing recorded yet.</li>}
+            {events.map((e) => <li key={e.seq}><Avatar id={e.actor} size={20} /><span className="grow">{e.summary}</span><time>{when(e.ts, now)}</time></li>)}
+          </ul>
+        )}
       </div>
+      {tab === 'discussion' && (
+        <div className="reply">
+          <Icon name="comment" className="muted" />
+          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={1} placeholder="Reply or @mention an agent…" aria-label={`Comment on ${t.id}`} onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && void say()} />
+          <button className="primary icon send" onClick={() => void say()} disabled={comment.trim() === ''} aria-label="Send"><Icon name="send" /></button>
+        </div>
+      )}
       {sub && <NewTask parent={t.id} onClose={() => setSub(false)} />}
-    </>
+    </>,
   );
 }
