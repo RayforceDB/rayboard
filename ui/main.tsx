@@ -5,7 +5,7 @@ import { Agents } from './agents';
 import { People } from './people';
 import { Chat } from './chat';
 import { Icon, type IconName } from './icons';
-import { AgentStrip, Avatar, Badge, BoardContext, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
+import { AgentStrip, Avatar, Badge, BoardContext, mayDecide, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
 import { Profile } from './profile';
@@ -14,6 +14,13 @@ import { listenToRoute, parseRoute, routeHash } from './route';
 import { ResizeHandle, panelWidth } from './resize';
 
 /** The sidebar: what there is to look at, in the order of a working day. */
+/** What each sidebar number counts, said where it is shown. */
+const COUNT_MEANS: Record<string, (n: number) => string> = {
+  tasks: (n) => `${n} open ${n === 1 ? 'task has' : 'tasks have'} changed since you last opened ${n === 1 ? 'it' : 'them'}`,
+  reviews: (n) => `${n} ${n === 1 ? 'review waits' : 'reviews wait'} for your verdict`,
+  chat: (n) => `${n} ${n === 1 ? 'conversation has' : 'conversations have'} new messages for you`,
+  agents: (n) => `${n} ${n === 1 ? 'agent asks' : 'agents ask'} to join`,
+};
 const NAV: [view: string, label: string, icon: IconName][] = [
   ['overview', 'Overview', 'home'],
   ['tasks', 'Board', 'board'],
@@ -116,7 +123,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   // Every count is what asks something of the person looking: reviews they may decide, open tasks and their
   // own conversations with something new from someone else. Conversations between agents are watched, not counted.
   const counts: Record<string, number> = {
-    reviews: board.reviews.filter((r) => r.requester !== me.id && board.tasks.find((t) => t.id === r.task)?.assignee !== me.id && (r.reviewer === '' || r.reviewer === me.id)).length,
+    reviews: board.reviews.filter((r) => mayDecide(r, me, board.tasks)).length,
     agents: waiting,
     tasks: unreadCount(board.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled'), unread.reads, me.id),
     chat: unreadCount([...board.channels, ...board.dms.filter((d) => (d.chan as string).split(':').includes(me.id))], unread.reads, me.id),
@@ -131,7 +138,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
               <button key={view} className={route.view === view ? 'on' : ''} onClick={() => open(view)}>
                 <Icon name={icon} size={24} />
                 {label}
-                {counts[view] ? <span className="count">{counts[view]}</span> : null}
+                {counts[view] ? <span className="count" title={COUNT_MEANS[view]?.(counts[view]!)}>{counts[view]}</span> : null}
               </button>
             ))}
           </div>

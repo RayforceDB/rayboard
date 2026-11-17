@@ -417,7 +417,9 @@ tr.clickable:hover td { background: var(--bg); }
 .drawer-head h2 { flex: 1 1 100%; }
 .thread .new-post { background: var(--accent-soft); }
 .card-task.unread:not(.on) { border-color: var(--line-strong); }
-.unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--info); flex: none; }
+/* Neutral and outlined, so it never reads as a status colour. */
+.unread-chip { flex: none; font-size: 11px; font-weight: 700; line-height: 16px; padding: 0 7px; border-radius: 99px; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); white-space: nowrap; }
+.reviews-group { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; margin: 6px 0 2px; }
 .task-row.unread:not(.on) { box-shadow: none; background: var(--info-soft); }
 .chat aside button.unread { color: var(--info); font-weight: 700; }
 .msg.new-post { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: 12px; }

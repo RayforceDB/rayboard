@@ -1,7 +1,7 @@
 import { useEffect, useState, type DragEvent, type ReactNode } from 'react';
 import { ago, api, clock, usd, when, type Row } from './api';
 import { Icon } from './icons';
-import { AgentStrip, Avatar, Badge, Empty, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
+import { AgentStrip, Avatar, Badge, Empty, mayDecide, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
@@ -33,7 +33,8 @@ export function Tasks({ item }: { item: string }) {
   const now = Date.parse(board.now);
   const comments = new Map((board.threads ?? []).map((r) => [r.chan as string, r.n as number]));
   // The dashboard already folds comments, evidence and reviews into each task's last change.
-  const unreadRow = (t: Row) => unread(t);
+  // Only work still going on is marked: it is what the sidebar counts, and a change to finished work asks nothing.
+  const unreadRow = (t: Row) => t.status !== 'done' && t.status !== 'cancelled' && unread(t);
   const q = query.trim().toLowerCase();
   const shown = board.tasks.filter((t) => q === '' || `${t.id} ${t.title} ${name(t.assignee)}`.toLowerCase().includes(q));
   const lanes = [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
@@ -54,7 +55,7 @@ export function Tasks({ item }: { item: string }) {
     if (!ok) setDropError(`Could not move ${t.id}. Check its permissions, review and current revision.`);
   };
   /** A review this person can decide is the one thing on the board waiting on them. */
-  const mine = new Set(board.reviews.filter((r) => r.requester !== me.id && board.tasks.find((t) => t.id === r.task)?.assignee !== me.id && (r.reviewer === '' || r.reviewer === me.id)).map((r) => r.task as string));
+  const mine = new Set(board.reviews.filter((r) => mayDecide(r, me, board.tasks)).map((r) => r.task as string));
 
   return (
     <div className="board-view">
@@ -83,7 +84,7 @@ export function Tasks({ item }: { item: string }) {
                 <h3><span className={`lane-dot s-${lane.key}`} aria-hidden="true" />{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
                 {lane.tasks.map((t) => (
                   <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task s-${t.status} ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
-                    <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-dot" title="New updates" aria-label="New updates" />}</span>
+                    <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}</span>
                     <b>{t.title}</b>
                     <Tags t={t} />
                     <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
@@ -105,6 +106,7 @@ export function Tasks({ item }: { item: string }) {
                   <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
                     <code>{t.id}</code>
                     <span className="title">{t.title}</span>
+                    {unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}
                     {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
                     {mine.has(t.id) && <span className="ask inline"><Icon name="alert" />your input</span>}
                     <span className="grow" />

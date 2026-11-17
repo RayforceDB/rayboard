@@ -56,6 +56,11 @@ export const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting for approval', active: 'Active', paused: 'Paused', revoked: 'Revoked', approved: 'Approved', withdrawn: 'Withdrawn',
 };
 
+/** A review this person may decide: not one they asked for, not of a task they hold, and asked of them or of anyone. */
+export function mayDecide(r: Row, me: Row, tasks: Row[]): boolean {
+  return r.requester !== me.id && tasks.find((t) => t.id === r.task)?.assignee !== me.id && (r.reviewer === '' || r.reviewer === me.id);
+}
+
 export function Badge({ status }: { status: string }) {
   return <span className={`badge s-${status}`}>{STATUS_LABEL[status] ?? status}</span>;
 }

@@ -1,23 +1,33 @@
 import { useEffect, useState } from 'react';
 import { ago, api, clock, usd, type Row } from './api';
-import { Empty, Who, useCtx } from './kit';
+import { Empty, Who, mayDecide, useCtx } from './kit';
 
 export function Reviews() {
-  const { board, open } = useCtx();
+  const { board, open, me } = useCtx();
   const titles = new Map(board.tasks.map((t) => [t.id, t.title]));
-  return (
-    <>
-      <header className="head"><h2>Reviews</h2></header>
-      {board.reviews.length === 0 && <Empty>No review is waiting. When an agent finishes a task that needs review, it appears here.</Empty>}
-      <div className="cards">
-        {board.reviews.map((r) => (
+  // The sidebar counts the first group; the second is shown so that nothing waiting is hidden.
+  const yours = board.reviews.filter((r) => mayDecide(r, me, board.tasks));
+  const others = board.reviews.filter((r) => !mayDecide(r, me, board.tasks));
+  const card = (r: Row) => (
           <article key={r.id} className="agent clickable" onClick={() => open('tasks', r.task)}>
             <div className="row"><code>{r.task}</code><b className="grow">{titles.get(r.task)}</b><time>{ago(r.created, Date.parse(board.now))}</time></div>
             <p className="muted byline"><span>by</span><Who id={r.requester} size={20} />{r.reviewer ? <><span>· asked of</span><Who id={r.reviewer} size={20} /></> : <span>· open to anyone but its author</span>}</p>
             <pre className="prose clamp">{r.note}</pre>
           </article>
-        ))}
-      </div>
+  );
+  return (
+    <>
+      <header className="head"><h2>Reviews</h2></header>
+      {board.reviews.length === 0 && <Empty>No review is waiting. When an agent finishes a task that needs review, it appears here.</Empty>}
+      {board.reviews.length > 0 && <>
+        <h3 className="reviews-group">Waiting for your verdict<span className="count-pill">{yours.length}</span></h3>
+        {yours.length === 0 ? <p className="muted">Nothing waits for you.</p> : <div className="cards">{yours.map(card)}</div>}
+        {others.length > 0 && <>
+          <h3 className="reviews-group">Waiting for someone else<span className="count-pill">{others.length}</span></h3>
+          <p className="muted">Asked of another reviewer, or of your own work.</p>
+          <div className="cards">{others.map(card)}</div>
+        </>}
+      </>}
     </>
   );
 }
