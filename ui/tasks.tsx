@@ -82,7 +82,7 @@ export function Tasks({ item }: { item: string }) {
                 <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
                 {lane.tasks.map((t) => (
                   <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
-                    <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} /></span>
+                    <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-dot" title="New updates" aria-label="New updates" />}</span>
                     <b>{t.title}</b>
                     <Tags t={t} />
                     <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
@@ -243,7 +243,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="drawer-head">
           <h2>{t.title}</h2>
           <StatusPill status={t.status} />
-          {!live && me.role !== 'viewer' && <button onClick={run('reopen_task')}><Icon name="undo" />Reopen task</button>}
+          {!live && me.role !== 'viewer' && <button onClick={run('reopen_task')}><Icon name="reopen" />Reopen task</button>}
           <div className="facts">
             <span className="muted"><Icon name="user" />Assignee</span>
             <Who id={t.assignee} empty="Unclaimed" />

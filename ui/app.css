@@ -396,7 +396,9 @@ tr.clickable:hover td { background: var(--bg); }
 .drawer-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .drawer-head h2 { flex: 1 1 100%; }
 .thread .new-post { background: var(--accent-soft); }
-.card-task.unread:not(.on), .task-row.unread:not(.on) { border-color: var(--info); box-shadow: inset 3px 0 var(--info); }
+.card-task.unread:not(.on) { border-color: var(--line-strong); }
+.unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--info); flex: none; }
+.task-row.unread:not(.on) { box-shadow: none; background: var(--info-soft); }
 .chat aside button.unread { color: var(--info); font-weight: 700; }
 .msg.new-post { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: 12px; }
 

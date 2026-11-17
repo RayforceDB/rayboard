@@ -33,6 +33,7 @@ const PATHS = {
   key: 'M15 7h.01M21 9a6 6 0 0 1-8.3 5.5L10 17H8v2H6v2H3v-3l6.5-6.5A6 6 0 1 1 21 9z',
   ban: `${C(12, 12, 9)}M5.6 5.6l12.8 12.8`,
   undo: 'M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8',
+  reopen: 'M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7',
 } as const;
 
 export type IconName = keyof typeof PATHS;
