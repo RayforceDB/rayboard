@@ -87,6 +87,7 @@ export function Tasks({ item }: { item: string }) {
                     <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}</span>
                     <b>{t.title}</b>
                     <Tags t={t} />
+                    <GithubTag id={t.id as string} />
                     <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
                     {mine.has(t.id) && <span className="ask"><Icon name="alert" />Waiting for your input</span>}
                     {t.dependency && <span className={`ask ${t.status === 'blocked' ? 'bad' : 'calm'}`}><Icon name={t.status === 'blocked' ? 'ban' : 'clock'} />{STATUS_LABEL[t.status]} on {t.dependency}</span>}
@@ -130,6 +131,17 @@ export function Tasks({ item }: { item: string }) {
 }
 
 /** What a card says about a task besides its title: where it belongs and who may see it. */
+/** Where on GitHub a task comes from, and what GitHub says of it: shown beside the task, never as its status. */
+export function GithubTag({ id }: { id: string }) {
+  const { board } = useCtx();
+  const g = (board.github ?? []).find((x) => x.task === id);
+  if (!g) return null;
+  const short = String(g.repo).split('/').pop();
+  return <a className={`gh-tag gh-${g.state}`} href={g.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} title={`On GitHub: ${g.kind === 'pr' ? 'pull request' : 'issue'} by @${g.author}, ${g.state}`}>
+    GitHub {short}#{g.number} · {g.state}
+  </a>;
+}
+
 function Tags({ t }: { t: Row }) {
   if (!t.parent && t.private !== 1) return null;
   return (
@@ -246,6 +258,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="drawer-head">
           <h2>{t.title}</h2>
           <StatusPill status={t.status} />
+          <GithubTag id={t.id as string} />
           {!live && me.role !== 'viewer' && <button onClick={run('reopen_task')}><Icon name="reopen" />Reopen task</button>}
           <div className="facts">
             <span className="muted"><Icon name="user" />Assignee</span>

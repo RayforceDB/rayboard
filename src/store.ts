@@ -55,6 +55,13 @@ export const SCHEMA = {
     columns: { id: 'str', task: 'str', requester: 'str', reviewer: 'str', status: 'sym', note: 'str', comment: 'str', decider: 'str', created: 'ts', decided: 'ts', seq: 'i64' },
   },
   cursors: { keyed: true, columns: { id: 'str', seq: 'i64' } },
+  /** An issue or pull request of a followed repository, by GitHub's node id, and the task it is worked on as (T-19). */
+  gh_items: {
+    keyed: true,
+    columns: { id: 'str', repo: 'str', repo_name: 'str', kind: 'sym', number: 'i64', url: 'str', title: 'str', state: 'sym', author: 'str', updated: 'ts', task: 'str' },
+  },
+  /** Every webhook delivery the board took, by GitHub's delivery id: the same delivery twice is applied once. */
+  gh_deliveries: { keyed: true, columns: { id: 'str', ts: 'ts', event: 'sym', repo: 'str', result: 'sym' } },
   messages: { keyed: false, columns: { id: 'str', seq: 'i64', ts: 'ts', chan: 'str', kind: 'sym', author: 'str', body: 'str', mentions: 'str' } },
   costs: { keyed: false, columns: { id: 'str', seq: 'i64', ts: 'ts', agent: 'str', task: 'str', model: 'str', tin: 'i64', tout: 'i64', usd: 'f64', note: 'str' } },
   /** What each actor is to be told: the rows an inbox is made of. */

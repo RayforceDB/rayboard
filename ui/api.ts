@@ -12,6 +12,8 @@ export interface Snapshot {
   dms: Row[];
   /** How many comments each task's thread holds, by task id in `chan`. */
   threads?: Row[];
+  /** Issues and pull requests the board follows on GitHub, by the task each is worked on as. */
+  github?: Row[];
   enrollment: boolean;
   invites?: Row[];
   seq: number;

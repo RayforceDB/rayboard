@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { signed } from './github';
 import { BoardError, type Actor, type Board, type ErrorCode } from './board';
 import { mcp } from './mcp';
 
@@ -214,6 +215,25 @@ export function startServer(o: ServerOptions): Server {
           }
           const answer = await mcp(board, actor, message, VERSION);
           return answer === null ? new Response(null, { status: 202, headers: baseHeaders }) : json(200, answer);
+        }
+        // GitHub's webhook (T-19): no session, only the signature made with the secret kept beside the board.
+        if (path === '/api/github') {
+          if (req.method !== 'POST') return new Response(null, { status: 405, headers: { ...baseHeaders, Allow: 'POST' } });
+          const file = join(dirname(board.options.base), 'github', 'webhook_secret');
+          if (!existsSync(file)) return refuse('conflict', 'GitHub is not connected to this board', 503);
+          const raw = await req.text();
+          if (!signed(readFileSync(file, 'utf8').trim(), raw, req.headers.get('x-hub-signature-256'))) return refuse('unauthorized', 'the delivery is not signed with this board\'s webhook secret', 401);
+          const event = req.headers.get('x-github-event') ?? '';
+          const delivery = req.headers.get('x-github-delivery') ?? '';
+          if (!/^[A-Za-z0-9-]{1,80}$/.test(delivery) || !/^[a-z_]{1,40}$/.test(event)) return refuse('invalid', 'a delivery needs X-GitHub-Event and X-GitHub-Delivery');
+          if (event === 'ping') return json(200, { ok: true, result: 'pong' });
+          let payload: Record<string, unknown>;
+          try {
+            payload = JSON.parse(raw) as Record<string, unknown>;
+          } catch {
+            return refuse('invalid', 'the delivery is not JSON');
+          }
+          return json(200, { ok: true, ...board.githubDelivery(delivery, event, payload) });
         }
         if (path.startsWith('/api/')) {
           if (path === '/api/health') return json(200, { ok: true, name: 'rayboard', version: VERSION });

@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { read as readGithub } from './github';
 import { readOldJournal, type Entry, type Row } from './journal';
 import type { Ray } from './ray';
 import { NEVER, openStore, type Store } from './store';
@@ -91,6 +92,8 @@ export interface Board {
   resetPassword(name: string): Promise<string>;
   /** Called after every change with the entry that made it. */
   onChange(listener: (entry: Entry) => void): void;
+  /** Takes one signed GitHub webhook delivery (T-19): its receipt and what it changes are one write. */
+  githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string };
   store: Store;
   options: BoardOptions;
   close(): void;
@@ -957,6 +960,8 @@ export function openBoard(options: BoardOptions): Board {
             const t = store.get('tasks', r.chan as string);
             return t !== null && canSee(actor, t);
           }),
+          github: store.all('gh_items').filter((g) => { const t = store.get('tasks', g.task as string); return t !== null && canSee(actor, t); })
+            .map((g) => ({ task: g.task, kind: g.kind, repo: g.repo_name, number: g.number, url: g.url, state: g.state, author: g.author })),
           enrollment: (store.get('settings', 'enroll')?.value ?? '') !== '',
           invites: store.all('invites').filter((i) => (i.expires as string) > at).map((i) => ({ id: i.id, role: i.role, created: i.created, expires: i.expires, by: i.by })),
           seq,
@@ -1083,6 +1088,27 @@ export function openBoard(options: BoardOptions): Board {
         return { ok: true };
       },
     },
+    set_github_repos: {
+      description: 'Which GitHub repositories the board follows (owner/name, separated by spaces). Their issues and pull requests come in as tasks; nothing is written to GitHub.',
+      who: 'user', mutates: true, admin: true,
+      params: { repos: str('owner/name of each repository, separated by spaces; "none" for none.', 2000, true) },
+      run(actor, p) {
+        const names = (p.repos as string).trim() === 'none' ? [] : [...new Set((p.repos as string).split(/[\s,]+/).filter((n) => n !== ''))];
+        for (const n of names) if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(n)) bad('invalid', `${clip(n, 80)} is not owner/name`);
+        // A repository kept keeps the id GitHub gave it; one removed is no longer followed, and its tasks stay as they are.
+        const before = followed();
+        const list = names.map((name) => before.find((r) => r.name.toLowerCase() === name.toLowerCase()) ?? { name, id: '' });
+        commit('github.repos', actor.id, 'github.repos', `${actor.name} set the followed GitHub repositories: ${names.join(' ') || 'none'}`, { settings: [{ id: 'github.repos', value: JSON.stringify(list) }] });
+        return list;
+      },
+    },
+    github_status: {
+      description: 'The GitHub repositories followed and the last deliveries taken.',
+      who: 'user', mutates: false, admin: true, params: {},
+      run() {
+        return { repos: followed(), deliveries: store.ask(`(select {from: gh_deliveries desc: ts take: 20})`) };
+      },
+    },
     reopen_task: {
       description: 'Open a done or cancelled task again.',
       who: 'user', mutates: true, params: { task: TASK },
@@ -1093,6 +1119,78 @@ export function openBoard(options: BoardOptions): Board {
       },
     },
   };
+
+  // ---- GitHub (T-19, stage 1: read only) ----
+
+  /** The repositories the board follows, by name, and by GitHub's id once a delivery has told it. */
+  const followed = (): { name: string; id: string }[] => {
+    try {
+      const list = JSON.parse(store.get('settings', 'github.repos')?.value as string ?? '[]') as { name: string; id: string }[];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  };
+
+  function githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string } {
+    if (broken) throw new Error('the log could not be written; the board accepts nothing until it is restarted');
+    if (store.get('gh_deliveries', delivery) !== null) return { result: 'duplicate' };
+    const at = now().toISOString();
+    const { repo, item, ping } = readGithub(event, payload);
+    const list = followed();
+    // A repository is followed by its id once known; until then by its name, and the id is kept from then on.
+    const entry = repo === null ? undefined : list.find((r) => (r.id !== '' ? r.id === repo.id : r.name.toLowerCase() === repo.name.toLowerCase()));
+    const receipt = (result: string): Row => ({ id: delivery, ts: at, event, repo: repo?.id ?? '', result });
+    if (repo === null || entry === undefined || (item === null && ping === null)) {
+      commit('github.ignored', 'github', delivery, '', { gh_deliveries: [receipt('ignored')] }, [], true);
+      return { result: 'ignored' };
+    }
+    const settings: Record<string, Row[]> = entry.id === '' ? { settings: [{ id: 'github.repos', value: JSON.stringify(list.map((r) => (r === entry ? { ...r, id: repo.id } : r))) }] } : {};
+    const short = repo.name.split('/').pop() ?? repo.name;
+    if (item !== null) {
+      const known = store.get('gh_items', item.node);
+      // An older delivery never undoes what a newer one said.
+      if (known !== null && Date.parse(item.updated) < Date.parse(known.updated as string)) {
+        commit('github.stale', 'github', known.task as string, '', { gh_deliveries: [receipt('stale')], ...settings }, [], true);
+        return { result: 'ignored', task: known.task as string };
+      }
+      const label = `${short}#${item.number}`;
+      if (known === null) {
+        tasksMade += 1;
+        const t: Row = {
+          id: `T-${tasksMade}`, title: clip(`${label} ${item.title}`, 200), body: `GitHub ${item.kind === 'pr' ? 'pull request' : 'issue'} ${item.url}
+Reported by @${item.author} on GitHub. The conversation with its author stays there.`,
+          status: 'open', creator: 'github', assignee: '', reviewer: '', parent: '', priority: 1, review: 'required', result: '', created: at, updated: at, seq: seq + 1,
+          outcome: `Resolved on GitHub: ${item.url}`, next: '', participants: '', private: repo.private ? 1 : 0, rev: 1, dependency: '', check: '',
+        };
+        const g: Row = { id: item.node, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id };
+        commit('github.imported', 'github', t.id as string, `GitHub ${label} came in as ${t.id}: ${clip(item.title)}`, { tasks: [t], gh_items: [g], gh_deliveries: [receipt('applied')], ...settings });
+        return { result: 'applied', task: t.id as string };
+      }
+      const t = store.get('tasks', known.task as string)!;
+      const title = clip(`${label} ${item.title}`, 200);
+      const g: Row = { ...known, repo_name: repo.name, url: item.url, title: item.title, state: item.state, updated: item.updated };
+      // GitHub's state is shown beside the task, never written into it: its holder decides what closing there means here.
+      const changed = item.state !== known.state;
+      const said = item.state === 'open' ? 'was reopened' : item.state === 'merged' ? 'was merged' : 'was closed';
+      const put: Record<string, Row[]> = { gh_items: [g], gh_deliveries: [receipt('applied')], ...settings };
+      if (title !== t.title || (repo.private ? 1 : 0) !== t.private) put.tasks = [{ ...t, title, private: repo.private ? 1 : 0, updated: at, seq: seq + 1, rev: (t.rev as number) + 1 }];
+      commit('github.updated', 'github', t.id as string, `GitHub ${label}${changed ? ` ${said}` : ' changed'}`, put,
+        changed ? parties(t).map((dest) => ({ dest, type: 'github', subject: t.id as string, text: `GitHub ${label} ${said}: ${item.url}. Decide here whether ${t.id} is done or cancelled.` })) : []);
+      return { result: 'applied', task: t.id as string };
+    }
+    // Someone spoke or reviewed on GitHub: whoever holds the task is told where, not what.
+    const known = store.ask(`(select {from: gh_items where: (in repo (at rb_q 'q0))})`, { str: [repo.id] }).find((g) => Number(g.number) === ping!.number);
+    if (known === undefined) {
+      commit('github.ignored', 'github', delivery, '', { gh_deliveries: [receipt('ignored')], ...settings }, [], true);
+      return { result: 'ignored' };
+    }
+    const t = store.get('tasks', known.task as string)!;
+    const holder = t.assignee as string;
+    commit('github.activity', 'github', t.id as string, `@${ping!.login} ${ping!.what} on GitHub`, { gh_deliveries: [receipt('applied')], ...settings },
+      holder === '' ? [] : [{ dest: holder, type: 'github', subject: t.id as string, text: `@${ping!.login} ${ping!.what} in ${short}: ${ping!.url}. Answer there.` }]);
+    return { result: 'applied', task: t.id as string };
+  }
 
   /** Who is told that a task is done: its creator, and whoever holds the task it is a part of. */
   function doneNotes(t: Row, actor: Actor): Note[] {
@@ -1318,6 +1416,7 @@ export function openBoard(options: BoardOptions): Board {
       return next;
     },
     onChange: (listener) => void listeners.push(listener),
+    githubDelivery,
     close: () => store.close(),
   };
   return api;
