@@ -137,6 +137,19 @@ bun test         # the board against the real engine, and the server end to end
 bun run check    # types
 ```
 
+The navigation regression uses a real Chromium browser against the built UI with
+local HTTP fixtures, without a running board or production credentials:
+
+```sh
+bunx playwright install chromium   # once; Linux may also need Playwright system dependencies
+bun run test:browser
+```
+
+It checks mounted deep links, encoded identifiers, Back/Forward, duplicate
+selection, login return links and malformed hashes. Browser tests are separate
+from `bun test`.
+
+
 MIT. See `LICENSE`. Inter and JetBrains Mono (`ui/assets/fonts`) are under the SIL Open Font License; the RayforceDB logo in "Built on RayforceDB" is RayforceDB's.
 
 The website is `site/`, deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main` that touches it.
