@@ -10,6 +10,7 @@ import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
 import { Profile } from './profile';
 import { unreadCount, useUnread } from './unread';
+import { listenToRoute, parseRoute, routeHash } from './route';
 
 /** The sidebar: what there is to look at, in the order of a working day. */
 const NAV: [view: string, label: string, icon: IconName][] = [
@@ -22,7 +23,6 @@ const NAV: [view: string, label: string, icon: IconName][] = [
   ['costs', 'Costs', 'costs'],
   ['activity', 'Activity', 'activity'],
 ];
-const VIEWS = NAV.map(([view]) => view);
 
 function App() {
   const [session, setSession] = useState<{ setup: boolean; user: Row | null; unsafe?: boolean } | null>(null);
@@ -73,17 +73,16 @@ function SignIn({ setup, onDone }: { setup: boolean; onDone: () => void }) {
 
 function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; unsafe: boolean }) {
   const { board, tick, live, failed } = useBoard(onSignedOut);
-  const [route, setRoute] = useState(() => {
-    const [view = 'overview', item = ''] = location.hash.slice(1).split('/');
-    return { view: VIEWS.includes(view) ? view : 'overview', item: decodeURIComponent(item) };
-  });
+  const [route, setRoute] = useState(() => parseRoute(location.hash));
+  useEffect(() => listenToRoute(window, setRoute), []);
   const [error, setError] = useState('');
   const [changing, setChanging] = useState(false);
   const unread = useUnread(me.id);
   const [profile, setProfile] = useState(false);
   const open = useCallback((view: string, item = '') => {
-    history.replaceState(null, '', `#${view}${item ? `/${encodeURIComponent(item)}` : ''}`);
-    setRoute({ view, item });
+    const hash = routeHash({ view, item });
+    if (location.hash !== hash) history.pushState(null, '', hash);
+    setRoute(parseRoute(hash));
   }, []);
   const act = useCallback(async (work: () => Promise<unknown>) => {
     try {
