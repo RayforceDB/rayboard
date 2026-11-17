@@ -258,13 +258,14 @@ test('an agent sets its own avatar and people can see it after restart', async (
     expect(own.agentOfToken('invalid')?.id).toBeUndefined();
     const ownAgent = await own.agentOfToken(made.token);
     expect(ownAgent).not.toBeNull();
-    const other = await own.call(ownAgent!, 'set_agent_avatar', { image: png.toString('base64'), type: 'png' });
-    expect(other).toBe(avatar);
+    expect(await own.call(ownAgent!, 'set_agent_avatar', { agent: 'a_other', image: png.toString('base64'), type: 'png' })).toBe(avatar);
     const adminActor = own.userById(admin.id)!;
-    await expect(own.call(adminActor, 'set_agent_avatar', { agent: made.agent.id, image: png.toString('base64'), type: 'png' })).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await own.call(adminActor, 'set_agent_avatar', { agent: made.agent.id, image: png.toString('base64'), type: 'png' })).toBe(avatar);
     await own.call(ownAgent!, 'clear_agent_avatar', {});
     const dashCleared = ((await (await fetch(ownServer.url + '/api/call/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: ownServer.url, 'X-CSRF-Token': csrf }, body: '{}' })).json()) as any).result;
     expect(dashCleared.agents.find((a: any) => a.id === made.agent.id).avatar).toBe('');
+    expect(await own.call(adminActor, 'clear_agent_avatar', {agent: made.agent.id})).toEqual({ok:true});
+    expect(own.store.get('agents', made.agent.id)?.avatar).toBe('');
     await own.call(ownAgent!, 'set_agent_avatar', { image: png.toString('base64'), type: 'png' });
     const restored = await fetch(ownServer.url + avatar, { headers: { Cookie: cookie } });
     expect(restored.status).toBe(200);
