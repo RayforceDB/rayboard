@@ -164,3 +164,26 @@ test('a note about a task made private since is not given to a reader who may no
   await board.call(lead, 'update_task', { task: t.id, rev: await rev(lead, t.id), private: false });
   expect(((await board.call(watcher, 'inbox', {})) as { items: unknown[] }).items).toEqual([]);
 });
+
+test('notes passed over for privacy never stand between a reader and later notes, peeking or waiting (T-18)', async () => {
+  const lead = await agent('lead');
+  const watcher = await agent('watcher');
+  const t = (await board.call(lead, 'create_task', { title: 'HIDDEN-LATER', outcome: 'x', participants: 'watcher' })) as { id: string };
+  for (let i = 0; i < 101; i++) await board.call(lead, 'post_message', { to: t.id, body: `note ${i}` });
+  await board.call(lead, 'update_task', { task: t.id, rev: await rev(lead, t.id), participants: 'none', private: true });
+  // Only hidden notes are pending: a waiting inbox waits instead of answering empty at once.
+  const started = Date.now();
+  const empty = (await board.call(watcher, 'inbox', { peek: true, wait: 1 })) as { items: unknown[]; more: boolean };
+  expect(empty).toEqual({ items: [], more: false });
+  expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+  // A later note the watcher may see reaches a peeking client past all 101 hidden ones.
+  const open = (await board.call(lead, 'create_task', { title: 'VISIBLE', outcome: 'x', assignee: 'watcher' })) as { id: string };
+  for (let i = 0; i < 2; i++) {
+    const got = (await board.call(watcher, 'inbox', { peek: true })) as { items: { subject: string }[]; more: boolean };
+    expect(got.items.map((n) => n.subject)).toEqual([open.id]);
+    expect(got.more).toBe(false);
+  }
+  // Reading consumes it, hidden ones included: nothing is left.
+  await board.call(watcher, 'inbox', {});
+  expect(((await board.call(watcher, 'inbox', { peek: true })) as { items: unknown[] }).items).toEqual([]);
+});

@@ -482,13 +482,37 @@ export function openBoard(options: BoardOptions): Board {
           commit('inbox.read', actor.id, actor.id, '', { cursors: [{ id: actor.id, seq: through }] }, [], true);
           return { items: [], more: false };
         }
-        const read = (): Row[] => {
-          const cursor = Number(store.get('cursors', actor.id)?.seq ?? 0);
-          return store.ask(`(select {from: notes where: (and (in dest (at rb_q 'q0)) (> seq ${cursor})) asc: seq take: 100})`, { str: [actor.id] });
+        // Whether one may know of a task is decided when it is read, not when the note was written: a task
+        // made private since is not told of to someone who may no longer see it.
+        const mayKnow = (n: Row): boolean => {
+          const t = TASK_ID.test(n.subject as string) ? store.get('tasks', n.subject as string) : null;
+          return t === null || canSee(actor, t);
         };
-        let items = read();
+        /** Up to 100 notes this actor may know of after the cursor, and how far the scan went: notes it may not
+         *  know of are passed over, so they never stand between a reader (even one only peeking) and later notes. */
+        const read = (): { items: Row[]; last: number; more: boolean } => {
+          let last = Number(store.get('cursors', actor.id)?.seq ?? 0);
+          const items: Row[] = [];
+          for (;;) {
+            const batch = store.ask(`(select {from: notes where: (and (in dest (at rb_q 'q0)) (> seq ${last})) asc: seq take: 500})`, { str: [actor.id] });
+            for (const n of batch) {
+              last = n.seq as number;
+              if (!mayKnow(n)) continue;
+              items.push(n);
+              if (items.length === 100) return { items, last, more: true };
+            }
+            if (batch.length < 500) return { items, last, more: false };
+          }
+        };
+        const cursor0 = Number(store.get('cursors', actor.id)?.seq ?? 0);
+        // Moving past notes, seen or passed over, is what reading does; a peek moves nothing.
+        const advance = (to: number): void => {
+          if (p.peek !== true && to > Number(store.get('cursors', actor.id)?.seq ?? 0)) commit('inbox.read', actor.id, actor.id, '', { cursors: [{ id: actor.id, seq: to }] }, [], true);
+        };
+        let found = read();
         const wait = Math.min(INBOX_WAIT_MAX, (p.wait as number | undefined) ?? 0);
-        if (items.length === 0 && wait > 0) {
+        if (found.items.length === 0 && wait > 0) {
+          advance(found.last);
           await new Promise<void>((resolve) => {
             const set = waiting.get(actor.id) ?? new Set();
             waiting.set(actor.id, set);
@@ -501,18 +525,10 @@ export function openBoard(options: BoardOptions): Board {
             set.add(done);
           });
           seen.set(actor.id, Date.now());
-          items = read();
+          found = read();
         }
-        if (items.length > 0 && p.peek !== true) {
-          commit('inbox.read', actor.id, actor.id, '', { cursors: [{ id: actor.id, seq: items.at(-1)!.seq as number }] }, [], true);
-        }
-        // Whether one may know of a task is decided when it is read, not when the note was written: a task
-        // made private since is not told of to someone who may no longer see it. The cursor still moves past it.
-        const mayKnow = (n: Row): boolean => {
-          const t = TASK_ID.test(n.subject as string) ? store.get('tasks', n.subject as string) : null;
-          return t === null || canSee(actor, t);
-        };
-        return { items: items.filter(mayKnow).map(({ dest: _dest, id: _id, ...rest }) => rest), more: items.length === 100 };
+        if (found.last > cursor0) advance(found.last);
+        return { items: found.items.map(({ dest: _dest, id: _id, ...rest }) => rest), more: found.more };
       },
     },
     list_reviews: {
