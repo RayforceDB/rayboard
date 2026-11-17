@@ -18,6 +18,14 @@ test('renders Markdown and code as safe elements, not raw HTML', async () => {
   expect(tree.root.findAllByType('script')).toHaveLength(0);
   expect(JSON.stringify(tree.toJSON())).toContain('<script>alert(1)</script>');
 });
+test('images are links the reader may open, never fetched by the page; refused links are plain text', async () => {
+  const tree = await render('![tracker](http://10.0.0.1/pixel.png) [bad](javascript:alert(1)) [ok](https://example.com)');
+  expect(tree.root.findAllByType('img')).toHaveLength(0);
+  const links = tree.root.findAllByType('a');
+  expect(links.map((a) => a.props.href)).toEqual(['http://10.0.0.1/pixel.png', 'https://example.com']);
+  expect(links[0]!.children).toEqual(['tracker']);
+  expect(JSON.stringify(tree.toJSON())).toContain('bad');
+});
 test('inline code remains compact; GFM tables remain structured', async () => {
   const tree = await render('Use `inbox(through)`.\n\n| A | B |\n|---|---|\n| 1 | 2 |');
   expect(tree.root.findByType('code').props.className).toBeUndefined();

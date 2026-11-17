@@ -21,7 +21,11 @@ export function highlightCode(text: string) {
 export function Prose({ children, className = '' }: { children: string; className?: string }) {
   return <div className={`prose ${className}`}>
     <Markdown remarkPlugins={[remarkGfm]} components={{
-      a: ({ children, ...props }) => <a {...props} target="_blank" rel="noreferrer noopener nofollow">{children}</a>,
+      // A link whose address was refused as unsafe (javascript:, data:…) stays as plain text, not an anchor to the page itself.
+      a: ({ children, href, title }) => href ? <a href={href} title={title} target="_blank" rel="noreferrer noopener nofollow">{children}</a> : <span>{children}</span>,
+      // An image would be fetched by every reader's browser the moment the message is shown: a tracker
+      // or a probe of their network. It becomes a link they may choose to open.
+      img: ({ src, alt }) => typeof src === 'string' && src !== '' ? <a className="image-link" href={src} target="_blank" rel="noreferrer noopener nofollow">{alt || src}</a> : <span>{alt}</span>,
       code: ({ className, children }) => {
         const source = String(children ?? '').replace(/\n$/, '');
         return className ? <code className={className} data-language={className.replace(/^language-/, '')}>{highlightCode(source)}</code> : <code>{children}</code>;
