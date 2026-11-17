@@ -790,7 +790,7 @@ export function openBoard(options: BoardOptions): Board {
       description: 'Set your own PNG/JPEG avatar; a human administrator may assign any agent. Base64, up to 1 MiB.',
       who: 'any', mutates: true,
       params: { agent: str('For a human administrator, the agent id; an agent always changes itself.', 40), image: { type: 'string', description: 'Base64 image bytes.', required: true, max: 1_500_000 }, type: { type: 'string', description: 'png or jpg.', required: true, enum: ['png', 'jpg'] } },
-      run(actor, p) { return api.setAgentAvatar(actor, p.agent as string ?? '', Buffer.from(p.image as string, 'base64'), p.type as string); },
+      run(actor, p) { return api.setAgentAvatar(actor, p.agent as string ?? '', Buffer.from(p.image as string, 'base64').subarray(0), p.type as string); },
     },
     remove_avatar: {
       description: 'Remove your own profile image.', who: 'user', mutates: true, params: {},
@@ -1039,7 +1039,7 @@ export function openBoard(options: BoardOptions): Board {
       if (actor.kind !== 'agent' && !isAdmin(actor)) bad('forbidden', 'only an administrator may assign another agent an avatar');
       const row = store.get('agents', target) ?? bad('not_found', 'no such agent');
       const mime = type === 'png' ? 'image/png' : type === 'jpg' ? 'image/jpeg' : '';
-      const signature = type === 'png' ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : type === 'jpg' && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+      const signature = type === 'png' ? Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : type === 'jpg' && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
       if (mime === '' || bytes.length < 1 || bytes.length > 1024 * 1024 || !signature) bad('invalid', 'an avatar is a PNG or JPEG image, up to 1 MiB');
       const id = createHash('sha256').update(bytes).digest('hex');
       const path = join(dirname(options.base), 'avatars', id);
