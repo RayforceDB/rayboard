@@ -261,7 +261,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           )}
           {review && (
             <section className="callout ask-box">
-              <h4><Icon name="alert" /><span>Review asked by <Who id={review.requester} />{review.reviewer ? <> of <Who id={review.reviewer} /></> : ', open to anyone'}</span></h4>
+              <h4><Icon name="alert" /><span className="byline"><span>Review asked by</span><Who id={review.requester} size={20} />{review.reviewer ? <><span>of</span><Who id={review.reviewer} size={20} /></> : <span>· open to anyone</span>}</span></h4>
               {review.note && <Prose>{review.note}</Prose>}
               {review.requester !== me.id && (
                 <>

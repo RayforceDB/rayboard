@@ -216,7 +216,7 @@ function Overview() {
               <li key={a.id} onClick={() => open('agents')}><Badge status="paused" /><span className="grow"><b>{a.name}</b>: {a.reason}</span></li>
             ))}
             {board.reviews.map((r) => (
-              <li key={r.id} onClick={() => open('tasks', r.task)}><Badge status="in_review" /><span className="grow"><code>{r.task}</code> by <Who id={r.requester} />{r.reviewer ? <> for <Who id={r.reviewer} /></> : ' (open to anyone)'}</span><time>{ago(r.created, Date.parse(board.now))}</time></li>
+              <li key={r.id} onClick={() => open('tasks', r.task)}><Badge status="in_review" /><span className="grow byline"><code>{r.task}</code><span>by</span><Who id={r.requester} size={20} />{r.reviewer ? <><span>for</span><Who id={r.reviewer} size={20} /></> : <span>(open to anyone)</span>}</span><time>{ago(r.created, Date.parse(board.now))}</time></li>
             ))}
           </ul>
         </section>

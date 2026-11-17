@@ -180,6 +180,9 @@ main > .head h2 { font-size: 28px; letter-spacing: -0.02em; }
 .pill { display: inline-flex; align-items: center; gap: 7px; justify-self: start; width: fit-content; background: var(--soft, var(--raised)); color: var(--c, var(--muted)); border-radius: var(--r-sm); padding: 4px 12px; font-weight: 600; font-size: 14px; }
 .who { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-weight: 500; }
 .who.none { color: var(--faint); font-weight: 400; }
+/* A line of words and people: one centre line, so "by" and a name sit level with its avatar. */
+.byline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.byline .who { gap: 6px; color: var(--text); }
 .prio { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .prio.p2, .prio.p3 { color: var(--accent-text); }
 .prio.p3 { font-weight: 600; }
@@ -240,7 +243,6 @@ main:has(> .board-view) { padding: 0; }
 .callout { border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 10px; background: var(--bg); }
 .callout h4 { margin: 0; align-items: flex-start; line-height: 1.5; }
 .callout h4 > .icon { margin-top: 2px; }
-.callout h4 .who { vertical-align: bottom; gap: 5px; }
 .callout.bad { background: var(--bad-soft); border-color: transparent; }
 .callout.bad h4 { color: var(--bad); }
 .ask-box { background: var(--warn-soft); border-color: #f5e2b5; }

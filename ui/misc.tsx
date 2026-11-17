@@ -13,7 +13,7 @@ export function Reviews() {
         {board.reviews.map((r) => (
           <article key={r.id} className="agent clickable" onClick={() => open('tasks', r.task)}>
             <div className="row"><code>{r.task}</code><b className="grow">{titles.get(r.task)}</b><time>{ago(r.created, Date.parse(board.now))}</time></div>
-            <p className="muted">by <Who id={r.requester} />{r.reviewer ? <> · asked of <Who id={r.reviewer} /></> : ' · open to anyone but its author'}</p>
+            <p className="muted byline"><span>by</span><Who id={r.requester} size={20} />{r.reviewer ? <><span>· asked of</span><Who id={r.reviewer} size={20} /></> : <span>· open to anyone but its author</span>}</p>
             <pre className="prose clamp">{r.note}</pre>
           </article>
         ))}
