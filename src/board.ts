@@ -95,6 +95,9 @@ export interface Board {
 }
 
 const NAME = /^[a-z0-9][a-z0-9_-]{1,31}$/;
+/** Names a message already gives a meaning to, so nobody can be called by them: @all is everyone here. */
+const RESERVED = new Set(['all']);
+const reserved = (name: string): void => { if (RESERVED.has(name)) bad('invalid', `@${name} is reserved: it names everyone a message reaches`); };
 const TASK_ID = /^T-[1-9][0-9]{0,8}$/;
 const TOKEN = /^rb_(a_[a-z0-9]{8})_[A-Za-z0-9_-]{43}$/;
 const OPEN_STATUSES = ['open', 'in_progress', 'waiting', 'blocked', 'in_review', 'changes_requested'] as const;
@@ -337,6 +340,7 @@ export function openBoard(options: BoardOptions): Board {
   function newAgent(by: string, p: { name: string; kind?: string; about?: string; budget?: number }, status: 'pending' | 'active'): { agent: Row; token: string } {
     const name = p.name.toLowerCase();
     if (!NAME.test(name)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _, and starts with a letter or a digit');
+    reserved(name);
     if (directory().byName.has(name)) bad('conflict', `the name ${name} is taken`);
     const id = ident('a');
     const token = `rb_${id}_${secret()}`;
@@ -405,8 +409,8 @@ export function openBoard(options: BoardOptions): Board {
       who: 'any', mutates: false, params: {},
       run(actor) {
         const subscribed = new Set(store.all('subscriptions').filter((r) => r.actor === actor.id && r.active === 1).map((r) => r.channel));
-        const counts = new Map(store.ask(`(select {from: messages where: (== kind 'channel) by: {chan: chan} n: (count id) last: (max seq)})`).map((r) => [r.chan, r]));
-        return store.all('channels').map((c) => ({ ...c, subscribed: subscribed.has(c.id), messages: counts.get(c.id as string)?.n ?? 0, last: counts.get(c.id as string)?.last ?? 0 }));
+        const counts = new Map(store.ask(`(select {from: messages where: (== kind 'channel) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).map((r) => [r.chan, r]));
+        return store.all('channels').map((c) => ({ ...c, subscribed: subscribed.has(c.id), messages: counts.get(c.id as string)?.n ?? 0, last: counts.get(c.id as string)?.last ?? 0, last_author: counts.get(c.id as string)?.last_author ?? '' }));
       },
     },
     set_channel_subscription: {
@@ -893,7 +897,16 @@ export function openBoard(options: BoardOptions): Board {
           agents: store.all('agents').map((a) => ({ ...agentView(a), avatar: a.avatar ? `/api/avatars/${a.id}/${a.avatar}` : '', spent: month.get(a.id as string) ?? 0 })),
           people: store.all('users').map(userView),
           channels: actions.list_channels!.run(actor, {}),
-          tasks: store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t)).map(({ body: _body, ...rest }) => rest),
+          tasks: (() => {
+            const tasks = store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t));
+            // What last happened to each task, whoever did it: a change, a comment, evidence or a review.
+            // Without who, a person's own edit would come back to them as something new.
+            const latest = new Map(store.ask(`(select {from: events where: (in subject (at rb_q 'q0)) by: {subject: subject} last: (max seq) last_author: (last actor)})`, { str: tasks.map((t) => t.id as string) }).map((e) => [e.subject, e]));
+            return tasks.map(({ body: _body, ...rest }) => {
+              const e = latest.get(rest.id as string);
+              return { ...rest, last: Math.max(Number(rest.seq ?? 0), Number(e?.last ?? 0)), last_author: e?.last_author ?? '' };
+            });
+          })(),
           reviews: actions.list_reviews!.run(actor, {}),
           dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)),
           threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((r) => {
@@ -955,6 +968,7 @@ export function openBoard(options: BoardOptions): Board {
         if (target.kind !== 'user') bad('not_found', `${target.name} is an agent, not a person`);
         const name = (p.name as string).toLowerCase();
         if (!NAME.test(name)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _');
+        reserved(name);
         const found = directory().byName.get(name);
         if (found !== undefined && found.id !== target.id) bad('conflict', `the name ${name} is taken`);
         const row = store.get('users', target.id)!;
@@ -1206,6 +1220,7 @@ export function openBoard(options: BoardOptions): Board {
     async createUser(name, password, role = 'admin') {
       const handle = name.toLowerCase();
       if (!NAME.test(handle)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _');
+      reserved(handle);
       if (password.length < 10 || password.length > 200) bad('invalid', 'a password has at least 10 characters');
       const pass = await Bun.password.hash(password, { algorithm: 'argon2id' });
       if (directory().byName.has(handle)) bad('conflict', `the name ${handle} is taken`);

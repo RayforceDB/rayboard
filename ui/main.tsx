@@ -113,7 +113,14 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 
   const waiting = board.agents.filter((a) => a.status === 'pending').length;
-  const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting, tasks: unreadCount(board.tasks,unread.reads,me.id), chat: unreadCount([...board.channels,...board.dms],unread.reads,me.id) };
+  // Every count is what asks something of the person looking: reviews they may decide, open tasks and their
+  // own conversations with something new from someone else. Conversations between agents are watched, not counted.
+  const counts: Record<string, number> = {
+    reviews: board.reviews.filter((r) => r.requester !== me.id && (r.reviewer === '' || r.reviewer === me.id)).length,
+    agents: waiting,
+    tasks: unreadCount(board.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled'), unread.reads, me.id),
+    chat: unreadCount([...board.channels, ...board.dms.filter((d) => (d.chan as string).split(':').includes(me.id))], unread.reads, me.id),
+  };
   return (
     <BoardContext.Provider value={shownCtx}>
       <div className="shell" style={{ gridTemplateColumns: `${sidebar}px minmax(0, 1fr)`, '--sidebar-width': `${sidebar}px` } as CSSProperties}>
@@ -216,7 +223,7 @@ function Overview() {
               <li key={a.id} onClick={() => open('agents')}><Badge status="paused" /><span className="grow"><b>{a.name}</b>: {a.reason}</span></li>
             ))}
             {board.reviews.map((r) => (
-              <li key={r.id} onClick={() => open('tasks', r.task)}><Badge status="in_review" /><span className="grow"><code>{r.task}</code> by <Who id={r.requester} />{r.reviewer ? <> for <Who id={r.reviewer} /></> : ' (open to anyone)'}</span><time>{ago(r.created, Date.parse(board.now))}</time></li>
+              <li key={r.id} onClick={() => open('tasks', r.task)}><Badge status="in_review" /><span className="grow byline"><code>{r.task}</code><span>by</span><Who id={r.requester} size={20} />{r.reviewer ? <><span>for</span><Who id={r.reviewer} size={20} /></> : <span>(open to anyone)</span>}</span><time>{ago(r.created, Date.parse(board.now))}</time></li>
             ))}
           </ul>
         </section>

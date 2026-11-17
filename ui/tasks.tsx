@@ -32,7 +32,8 @@ export function Tasks({ item }: { item: string }) {
   const cancelled = board.tasks.filter((t) => t.status === 'cancelled').length;
   const now = Date.parse(board.now);
   const comments = new Map((board.threads ?? []).map((r) => [r.chan as string, r.n as number]));
-  const unreadRow = (t: Row) => unread({ ...t, ...(board.threads ?? []).find((r) => r.chan === t.id) });
+  // The dashboard already folds comments, evidence and reviews into each task's last change.
+  const unreadRow = (t: Row) => unread(t);
   const q = query.trim().toLowerCase();
   const shown = board.tasks.filter((t) => q === '' || `${t.id} ${t.title} ${name(t.assignee)}`.toLowerCase().includes(q));
   const lanes = [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
@@ -261,7 +262,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           )}
           {review && (
             <section className="callout ask-box">
-              <h4><Icon name="alert" /><span>Review asked by <Who id={review.requester} />{review.reviewer ? <> of <Who id={review.reviewer} /></> : ', open to anyone'}</span></h4>
+              <h4><Icon name="alert" /><span className="byline"><span>Review asked by</span><Who id={review.requester} size={20} />{review.reviewer ? <><span>of</span><Who id={review.reviewer} size={20} /></> : <span>· open to anyone</span>}</span></h4>
               {review.note && <Prose>{review.note}</Prose>}
               {review.requester !== me.id && (
                 <>
