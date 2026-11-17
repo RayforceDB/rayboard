@@ -151,6 +151,10 @@ test('a person can describe themself and upload a bounded avatar that survives r
   const person = (await board.call(board.userById(admin.id)!, 'dashboard', {}) as any).people.find((p: any) => p.id === admin.id);
   expect(person).toMatchObject({ about, avatar: url });
   expect(board.avatar(admin.id)?.bytes.equals(png)).toBe(true);
+  await board.call(board.userById(admin.id)!, 'set_profile', {});
+  expect(((await board.call(board.userById(admin.id)!, 'dashboard', {})) as any).people.find((p: any) => p.id === admin.id).about).toBe('');
+  board.clearAvatar(admin.id);
+  expect(board.avatar(admin.id)).toBeNull();
 });
 
 test('the board is the same after a restart, and logins hold', async () => {

@@ -67,6 +67,7 @@ export interface Board {
   /** Saves this person's PNG/JPEG, then records its hash as part of the same board update. */
   setAvatar(user: string, bytes: Buffer, type: string): string;
   /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
+  clearAvatar(user: string): void;
   avatar(user: string): { bytes: Buffer; type: string; id: string } | null;
   /** An agent asks to join with the enrollment key. It gets a token at once and can do nothing until a person approves it. */
   register(key: string, p: { name: string; kind?: string; about?: string }, open?: boolean): { agent: Row; token: string };
@@ -778,7 +779,7 @@ export function openBoard(options: BoardOptions): Board {
       params: { about: str('A short biography.', 2000) },
       run(actor, p) {
         const row = store.get('users', actor.id)!;
-        const next = { ...row, about: clip(p.about as string, 2000) };
+        const next = { ...row, about: clip((p.about as string | undefined) ?? '', 2000) };
         commit('person.profile_changed', actor.id, actor.id, actor.name + ' changed their profile', { users: [next] });
         return userView(next);
       },
@@ -1024,6 +1025,13 @@ export function openBoard(options: BoardOptions): Board {
       const old = row.avatar as string;
       if (old && old !== id && store.all('users').every((u) => u.avatar !== old)) unlinkSync(join(dirname(path), old));
       return '/api/avatars/' + user + '/' + id;
+    },
+    clearAvatar(user) {
+      const row = store.get('users', user) ?? bad('not_found', 'no such person');
+      const next = { ...row, avatar: '', avatar_type: '' };
+      commit('person.avatar_cleared', user, user, row.name + ' removed their avatar', { users: [next] });
+      const old = row.avatar as string;
+      if (old && store.all('users').every((u) => u.avatar !== old)) unlinkSync(join(dirname(options.base), 'avatars', old));
     },
     userById(id) {
       const row = store.get('users', id);
