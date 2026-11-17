@@ -157,6 +157,10 @@ export function missing(grant: Grant, followed: string[]): string[] {
   for (const name of followed) {
     if (!grant.repos.some((r) => r.name.toLowerCase() === name.toLowerCase())) out.push(`the App is not installed on ${name}`);
   }
+  if (followed.length === 0) out.push('no repositories are followed yet: save the list of repositories');
+  // More than it needs: the App may write issues wherever it is installed, so it should be installed only where followed.
+  const extra = grant.repos.filter((r) => !followed.some((name) => name.toLowerCase() === r.name.toLowerCase()));
+  if (extra.length > 0) out.push(`the App is also installed on ${extra.length} ${extra.length === 1 ? 'repository' : 'repositories'} the board does not follow (${extra.slice(0, 5).map((r) => r.name).join(', ')}${extra.length > 5 ? ', …' : ''}): choose only the followed ones in its installation settings`);
   return out;
 }
 

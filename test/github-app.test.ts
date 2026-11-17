@@ -106,7 +106,8 @@ test('reconciliation reads every page, takes each item once, and records the gra
   expect(fake.asked.some((a) => a.includes('/installation/repositories') && a.includes('page=2'))).toBe(true);
   expect(fake.asked.some((a) => a.includes('state=open') && a.includes('page=2'))).toBe(true);
   const status = (await board.call(anton, 'github_status', {})) as { repos: { name: string; id: string }[]; app: { problems: string[]; permissions: Record<string, string> } };
-  expect(status.app.problems).toEqual([]);
+  // Installed on rayforce-q too, which the board does not follow: said, not hidden.
+  expect(status.app.problems).toEqual([expect.stringContaining('also installed on 1 repository the board does not follow (RayforceDB/rayforce-q)')]);
   expect(status.repos).toEqual([{ name: 'RayforceDB/rayforce', id: '101' }]);
   expect(JSON.stringify(status)).not.toContain('ghs_x');
 });
@@ -121,4 +122,11 @@ test('a grant missing a permission or a followed repository is a configuration p
   await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
   const status = (await board.call(anton, 'github_status', {})) as { app: { problems: string[] } };
   expect(status.app.problems).toEqual(['the App lacks issues: write', 'the App is not installed on RayforceDB/rayforce-rs']);
+});
+
+test('an App installed beyond the followed repositories, or a board following none, is flagged', async () => {
+  const { missing } = await import('../src/github');
+  const grant = { installation: '1', permissions: { metadata: 'read', issues: 'write', pull_requests: 'read', checks: 'read' }, repos: [{ id: '1', name: 'RayforceDB/rayforce', private: false }, { id: '2', name: 'RayforceDB/website', private: false }] };
+  expect(missing(grant, ['RayforceDB/rayforce'])).toEqual([expect.stringContaining('also installed on 1 repository the board does not follow (RayforceDB/website)')]);
+  expect(missing(grant, [])).toContain('no repositories are followed yet: save the list of repositories');
 });
