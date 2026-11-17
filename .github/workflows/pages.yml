@@ -1,0 +1,38 @@
+name: Website
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'ui/assets/fonts/**', 'ui/assets/favicon.svg', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # The site shares the dashboard's fonts and mark rather than keeping copies of them.
+      - name: Assemble
+        run: |
+          cp -r site _site
+          mkdir -p _site/fonts
+          cp ui/assets/fonts/inter.woff2 ui/assets/fonts/jbmono.woff2 _site/fonts/
+          cp ui/assets/favicon.svg _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
