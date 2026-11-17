@@ -6,49 +6,28 @@
 @font-face { font-family: 'JetBrains Mono'; font-weight: 100 800; font-display: swap; src: url('./assets/fonts/jbmono.woff2') format('woff2'); }
 
 :root {
-  color-scheme: dark;
-  --bg: #0a0e13;
-  --panel: #0f151c;
-  --raised: #17202a;
-  --line: #1f2b37;
-  --line-warm: rgba(233, 160, 51, 0.22);
-  --text: #f1f5f9;
-  --muted: #7b8fa0;
-  --accent: #e9a033;
-  --accent-text: #f0b954;
-  --accent-ink: #04233b;
-  --good: #5eead4;
-  --bad: #f87171;
-  --info: #60a5fa;
-  --violet: #a78bfa;
-  --radius: 0px;
+  color-scheme: light;
+  --bg: #f5f7f9;
+  --panel: #ffffff;
+  --raised: #edf1f4;
+  --line: #dce4e9;
+  --line-warm: rgba(196, 130, 26, 0.35);
+  --text: #163247;
+  --muted: #627586;
+  --accent: #df941f;
+  --accent-text: #9b5d05;
+  --accent-ink: #fffdf8;
+  --good: #087f6c;
+  --bad: #c13c4b;
+  --info: #2563a9;
+  --violet: #7755b2;
   --heading: 'Oswald', 'Arial Narrow', ui-sans-serif, system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font: 14px/1.5 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-.on-light { display: none; }
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #f4f6f8;
-    --panel: #ffffff;
-    --raised: #eef1f4;
-    --line: #d9e0e6;
-    --line-warm: rgba(196, 130, 26, 0.35);
-    --text: #04233b;
-    --muted: #5b6f80;
-    --accent: #e9a033;
-    --accent-text: #a86a08;
-    --accent-ink: #04233b;
-    --good: #0f8f7c;
-    --bad: #c93a3a;
-    --info: #2563c9;
-    --violet: #6d4fc0;
-  }
-  .on-dark { display: none; }
-  .on-light { display: initial; }
-}
+.on-dark { display: none; }
+.on-light { display: initial; }
 * { box-sizing: border-box; border-radius: 0; }
 html, body, #root { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); }
@@ -282,3 +261,30 @@ tr.clickable:hover td { background: var(--panel); }
   .form .row { flex-direction: column; align-items: stretch; }
   .task-row .dep, .task-row .muted { display: none; }
 }
+
+/* Content-first light workspace: quiet chrome, legible Markdown and code. */
+.shell > nav { background: var(--panel); }
+main > .head { background: rgb(245 247 249 / 0.94); backdrop-filter: blur(10px); }
+.section button.on { box-shadow: inset 3px 0 0 var(--accent); }
+.prose { white-space: normal; line-height: 1.7; }
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose p, .prose ul, .prose ol, .prose blockquote { margin: 0 0 12px; }
+.prose h1, .prose h2, .prose h3, .prose h4 { margin: 20px 0 8px; font-family: inherit; text-transform: none; letter-spacing: normal; color: var(--text); }
+.prose h1 { font-size: 20px; } .prose h2 { font-size: 17px; } .prose h3 { font-size: 15px; }
+.prose a { color: var(--info); text-underline-offset: 3px; }
+.prose li + li { margin-top: 4px; }
+.prose blockquote { border-left: 3px solid var(--accent); padding: 4px 14px; color: var(--muted); background: var(--panel); }
+.prose :not(pre) > code { background: #eaf0f4; border: 1px solid var(--line); color: #925708; padding: 1px 5px; font-size: 0.9em; }
+.prose pre { position: relative; background: #eef3f6; border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 14px 16px; margin: 0 0 14px; overflow: auto; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 2; }
+.prose pre code { color: var(--text); font-size: 12.5px; }
+.prose pre code::before { content: attr(data-language); float: right; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.prose .syntax-keyword { color: #8047a8; }
+.prose .syntax-string { color: #257449; }
+.prose .syntax-comment { color: #6b7e89; font-style: italic; }
+.prose .syntax-number { color: #ac5a0a; }
+.prose .syntax-literal { color: #26748a; }
+.prose table { display: block; width: max-content; max-width: 100%; overflow: auto; margin-bottom: 14px; background: var(--panel); }
+.prose th { background: var(--raised); }
+.msg { padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); }
+.thread .msg { border-left: 3px solid var(--line-warm); }

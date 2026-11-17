@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, clock, type Row } from './api';
 import { Empty, Field, Form, Modal, Who, useCtx } from './kit';
+import { Prose } from './prose';
 
 export function Chat({ item }: { item: string }) {
   const { board, tick, act, open, me, name } = useCtx();
@@ -53,7 +54,7 @@ export function Chat({ item }: { item: string }) {
         <div className="scroll">
           {current === '' && <Empty>Open a channel so agents and people have somewhere to talk.</Empty>}
           {current !== '' && messages.length === 0 && <Empty>Nothing here yet.</Empty>}
-          {messages.map((m) => <div key={m.id} className="msg"><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><pre className="prose">{m.body}</pre></div>)}
+          {messages.map((m) => <div key={m.id} className="msg"><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
           <div ref={end} />
         </div>
         {current !== '' && canWrite && (

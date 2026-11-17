@@ -5,7 +5,9 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "bin": { "rayboard": "bin/rayboard.ts" },
+  "bin": {
+    "rayboard": "bin/rayboard.ts"
+  },
   "scripts": {
     "start": "bun bin/rayboard.ts serve",
     "engine": "bun bin/rayboard.ts engine",
@@ -14,12 +16,17 @@
   },
   "dependencies": {
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
+    "@types/hast": "^3.0.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/react-test-renderer": "^19.3.1",
+    "react-test-renderer": "^19.3.1",
     "typescript": "^5.6.0"
   }
 }

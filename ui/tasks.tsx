@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ago, api, clock, usd, type Row } from './api';
 import { Badge, Empty, Field, Form, Modal, STATUS_LABEL, Who, useCtx } from './kit';
+import { Prose } from './prose';
 
 const COLUMNS = ['open', 'in_progress', 'waiting', 'in_review', 'changes_requested', 'done'] as const;
 const PRIORITY = ['Low', 'Normal', 'High', 'Urgent'];
@@ -161,15 +162,15 @@ function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <p>Next check: {t.check}</p>
             </section>
           )}
-          {t.outcome && <><h4>Outcome</h4><pre className="prose">{t.outcome}</pre></>}
-          {t.body && <><h4>Description</h4><pre className="prose">{t.body}</pre></>}
-          {t.next && <><h4>Next action</h4><pre className="prose">{t.next}</pre></>}
-          {t.result && <><h4>{t.status === 'cancelled' ? 'Reason' : 'Result'}</h4><pre className="prose">{t.result}</pre></>}
+          {t.outcome && <><h4>Outcome</h4><Prose>{t.outcome}</Prose></>}
+          {t.body && <><h4>Description</h4><Prose>{t.body}</Prose></>}
+          {t.next && <><h4>Next action</h4><Prose>{t.next}</Prose></>}
+          {t.result && <><h4>{t.status === 'cancelled' ? 'Reason' : 'Result'}</h4><Prose>{t.result}</Prose></>}
 
           {review && (
             <section className="callout">
               <h4>Review asked by <Who id={review.requester} />{review.reviewer ? <> of <Who id={review.reviewer} /></> : ', open to anyone'}</h4>
-              <pre className="prose">{review.note}</pre>
+              <Prose>{review.note}</Prose>
               {review.requester !== me.id && (
                 <>
                   <textarea value={verdict} onChange={(e) => setVerdict(e.target.value)} rows={2} placeholder="Your comment (required to request changes)" />
@@ -208,7 +209,7 @@ function TaskDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <h4>Comments <span className="muted">{d.thread.length || ''}</span></h4>
           {d.thread.length === 0 && <p className="muted">Nobody has written here yet.</p>}
           <div className="thread">
-            {d.thread.map((m) => <div key={m.id} className="msg"><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><pre className="prose">{m.body}</pre></div>)}
+            {d.thread.map((m) => <div key={m.id} className="msg"><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
           </div>
           <div className="composer">
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} placeholder={`Comment on ${t.id}; @name notifies`} onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && void say()} />
