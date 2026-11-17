@@ -64,6 +64,8 @@ export interface Board {
   /** The agent a token belongs to, or null. Marks the agent as seen. */
   agentOfToken(token: string): Actor | null;
   userById(id: string): Actor | null;
+  /** Whether this person may know of what happened to this subject: false only for a private task they may not see. */
+  mayKnow(user: string, subject: string): boolean;
   /** Saves this person's PNG/JPEG, then records its hash as part of the same board update. */
   setAvatar(user: string, bytes: Buffer, type: string): string;
   /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
@@ -97,7 +99,11 @@ export interface Board {
 const NAME = /^[a-z0-9][a-z0-9_-]{1,31}$/;
 /** Names a message already gives a meaning to, so nobody can be called by them: @all is everyone here. */
 const RESERVED = new Set(['all']);
-const reserved = (name: string): void => { if (RESERVED.has(name)) bad('invalid', `@${name} is reserved: it names everyone a message reaches`); };
+const reserved = (name: string): void => {
+  if (RESERVED.has(name)) bad('invalid', `@${name} is reserved: it names everyone a message reaches`);
+  // Lookups take an id before a name, so a name shaped like an id would point at someone else.
+  if (/^[acur]_[a-z0-9]{8}$/.test(name)) bad('invalid', 'a name may not look like an id (a letter, _ and eight letters or digits)');
+};
 const TASK_ID = /^T-[1-9][0-9]{0,8}$/;
 const TOKEN = /^rb_(a_[a-z0-9]{8})_[A-Za-z0-9_-]{43}$/;
 const OPEN_STATUSES = ['open', 'in_progress', 'waiting', 'blocked', 'in_review', 'changes_requested'] as const;
@@ -144,7 +150,8 @@ export function openBoard(options: BoardOptions): Board {
     store.snapshot();
     renameSync(options.legacy, `${options.legacy}.imported`);
   }
-  let tasksMade = store.count('tasks');
+  // From the highest id ever given, not a row count: an id is never given twice, even to a board missing rows.
+  let tasksMade = store.all('tasks').reduce((n, t) => Math.max(n, Number(String(t.id).slice(2)) || 0), 0);
   /** Whether a request is being answered: what it writes goes to the log as one frame when it is done. */
   let inRequest = false;
   /** Set when the log could not be written: the tables then hold what the disk does not, and nothing more is accepted. */
@@ -174,6 +181,8 @@ export function openBoard(options: BoardOptions): Board {
   }
   /** The one way anything changes: the tables and the log, then whoever is listening. */
   function commit(type: string, actor: string, subject: string, summary: string, put: Record<string, Row[]>, notes: Note[] = [], quiet = false): Entry {
+    // After a write failed, memory holds what the disk does not: nothing more is accepted, by call() or any other path.
+    if (broken) throw new Error('the log could not be written; the board accepts nothing until it is restarted');
     seq += 1;
     const ts = now().toISOString();
     const told = new Set<string>();
@@ -231,7 +240,7 @@ export function openBoard(options: BoardOptions): Board {
     return t;
   }
   /** The ids of the private tasks this actor may not know of. */
-  const hidden = (actor: Actor): string[] => (actor.kind === 'user' ? [] : store.ask(`(select {from: tasks where: (== private 1)})`).filter((t) => !canSee(actor, t)).map((t) => t.id as string));
+  const hidden = (actor: Actor): string[] => (isAdmin(actor) ? [] : store.ask(`(select {from: tasks where: (== private 1)})`).filter((t) => !canSee(actor, t)).map((t) => t.id as string));
   /** Names or ids, separated by spaces or commas, as ids. */
   const several = (text: string): string[] => [...new Set(text.split(/[\s,]+/).filter((ref) => ref !== '').map((ref) => someone(ref).id))];
   const names = (): Map<string, string> => new Map([...directory().byId].map(([id, a]) => [id, a.name]));
@@ -277,10 +286,17 @@ export function openBoard(options: BoardOptions): Board {
     return { chan: `dm:${[actor.id, other.id].sort().join(':')}`, kind: 'dm', label: `@${other.name}`, party: [other.id], closed: true };
   }
 
+  /** A task as this actor may see it: a parent they may not know of is not named. */
+  function shown(actor: Actor, t: Row): Row {
+    if (t.parent === '' || t.parent === undefined) return t;
+    const parent = store.get('tasks', t.parent as string);
+    return parent !== null && canSee(actor, parent) ? t : { ...t, parent: '' };
+  }
+
   function taskDetail(actor: Actor, t: Row): Record<string, unknown> {
     const id = { str: [t.id as string] };
     return {
-      task: t,
+      task: shown(actor, t),
       evidence: store.ask(`(select {from: evidence where: (in task (at rb_q 'q0)) asc: seq})`, id),
       thread: store.ask(`(select {from: messages where: (in chan (at rb_q 'q0)) desc: seq take: 100})`, id).reverse(),
       reviews: store.ask(`(select {from: reviews where: (in task (at rb_q 'q0)) asc: seq})`, id),
@@ -386,7 +402,7 @@ export function openBoard(options: BoardOptions): Board {
         return rows
           .filter((t) => canSee(actor, t) && (assignee === null || t.assignee === assignee) && (parent === null || t.parent === parent))
           .slice(0, (p.limit as number | undefined) ?? 50)
-          .map(({ body: _body, ...rest }) => rest);
+          .map(({ body: _body, ...rest }) => shown(actor, rest));
       },
     },
     get_task: {
@@ -474,7 +490,7 @@ export function openBoard(options: BoardOptions): Board {
           .ask(`(select {from: reviews where: (== status 'pending) asc: seq})`)
           .map((r): Row => ({ ...r, title: tasks.get(r.task as string)?.title ?? '' }))
           .filter((r) => tasks.has(r.task as string) && canSee(actor, tasks.get(r.task as string)!))
-          .filter((r) => p.mine !== true || (r.requester !== actor.id && (r.reviewer === '' || r.reviewer === actor.id)));
+          .filter((r) => p.mine !== true || (r.requester !== actor.id && tasks.get(r.task as string)?.assignee !== actor.id && (r.reviewer === '' || r.reviewer === actor.id)));
       },
     },
     costs: {
@@ -585,6 +601,8 @@ export function openBoard(options: BoardOptions): Board {
         const t = task(actor, p.task as string, p.rev as number);
         if (actor.kind !== 'user' && t.creator !== actor.id && t.assignee !== actor.id) bad('forbidden', `only the creator of ${t.id}, whoever holds it, or a person can change it`);
         if (p.private !== undefined && actor.kind !== 'user' && t.creator !== actor.id) bad('forbidden', `only the creator of ${t.id} or a person decides who may see it`);
+        // What was approved stays what was reviewed: a person reopens it before it changes.
+        if (actor.kind !== 'user' && (t.status === 'done' || t.status === 'cancelled')) bad('conflict', `${t.id} is ${t.status}; a person reopens it before it changes`);
         const change: Record<string, string | number> = {};
         for (const key of ['title', 'body', 'outcome', 'next', 'priority'] as const) if (p[key] !== undefined) change[key] = p[key] as string | number;
         if (p.participants !== undefined) change.participants = p.participants === 'none' ? '' : several(p.participants as string).join(' ');
@@ -654,6 +672,8 @@ export function openBoard(options: BoardOptions): Board {
         if (actor.kind !== 'user' && t.creator !== actor.id && t.assignee !== actor.id) bad('forbidden', 'only the creator, holder or a person may move this task');
         if (t.status === 'done' || t.status === 'cancelled') {
           if (next !== 'open') bad('conflict', `${t.id} is ${t.status}; reopen it to return to the board`);
+          // Approved work is reopened by a person; a cancellation is undone by whoever may cancel: its creator or a person.
+          if (actor.kind !== 'user' && (t.status === 'done' || t.creator !== actor.id)) bad('forbidden', t.status === 'done' ? `only a person reopens ${t.id} once it is done` : `only the creator of ${t.id} or a person undoes its cancellation`);
           return saveTask(actor, t, { status: 'open', result: '' }, 'task.reopened', `${actor.name} reopened ${t.id}`, told(t, 'task.reopened', `${actor.name} reopened ${t.id}`));
         }
         if (next === 'open') {
@@ -666,6 +686,7 @@ export function openBoard(options: BoardOptions): Board {
           return saveTask(actor, t, { status: 'in_progress', dependency: '', check: '' }, 'task.started', `${actor.name} moved ${t.id} to in progress`, told(t, 'task.started', `${actor.name} moved ${t.id} to in progress`));
         }
         if (next === 'waiting' || next === 'blocked') {
+          if (t.status === 'in_review') bad('conflict', 'a pending review must be decided before the task waits');
           const note = (p.note as string | undefined)?.trim();
           if (!note) bad('invalid', 'waiting or blocked needs a note saying what it depends on and when to check next');
           return saveTask(actor, t, { status: next, dependency: note, check: note }, `task.${next}`, `${actor.name} moved ${t.id} to ${next}`, told(t, `task.${next}`, `${actor.name} moved ${t.id} to ${next}: ${note}`));
@@ -673,7 +694,7 @@ export function openBoard(options: BoardOptions): Board {
         if (next === 'in_review') {
           if (t.status === 'in_review') return t;
           const reviewer = p.reviewer === undefined ? null : available(p.reviewer as string);
-          if (reviewer?.id === actor.id) bad('invalid', 'nobody reviews their own work');
+          if (reviewer?.id === actor.id || (reviewer !== null && reviewer.id === t.assignee)) bad('invalid', 'nobody reviews their own work');
           const review: Row = { id: ident('r'), task: t.id!, requester: actor.id, reviewer: reviewer?.id ?? '', status: 'pending', note: 'Moved to review from the board.', comment: '', decider: '', created: now().toISOString(), decided: NEVER, seq: seq + 1 };
           saveTask(actor, t, { status: 'in_review', reviewer: reviewer?.id ?? '' }, 'review.requested', `${actor.name} asked for review of ${t.id}`, [{ dest: reviewer?.id ?? t.creator as string, type: 'review.requested', subject: t.id as string, text: `${actor.name} asks for review of ${t.id}` }], { reviews: [review] });
           return review;
@@ -711,7 +732,8 @@ export function openBoard(options: BoardOptions): Board {
         const t = task(actor, p.task as string, p.rev as number | undefined);
         const review = t.status === 'in_review' ? pendingReview(t.id as string) : undefined;
         if (review === undefined) return bad('conflict', `${t.id} is ${t.status} and has no review waiting`);
-        if (review.requester === actor.id) bad('forbidden', 'nobody reviews their own work');
+        // Whoever asked for it, and whoever holds the task (did the work), never decide it.
+        if (review.requester === actor.id || t.assignee === actor.id) bad('forbidden', 'nobody reviews their own work');
         if (review.reviewer !== '' && review.reviewer !== actor.id) bad('forbidden', `this review was asked of ${names().get(review.reviewer as string) ?? 'someone else'}`);
         const approve = p.verdict === 'approve';
         const comment = (p.comment as string | undefined) ?? '';
@@ -730,10 +752,8 @@ export function openBoard(options: BoardOptions): Board {
       who: 'any', mutates: true, params: { task: TASK, result: str('What came of it and what shows it: the evidence that the outcome is there.', 20_000, true), rev: REV },
       run(actor, p) {
         const t = task(actor, p.task as string, p.rev as number | undefined);
-        if (actor.kind !== 'user') {
-          if (t.assignee !== actor.id) bad('forbidden', `${t.id} is not yours`);
-          if (t.review === 'required') bad('forbidden', `${t.id} is done only when someone else approves it: use request_review`);
-        }
+        if (actor.kind !== 'user' && t.assignee !== actor.id) bad('forbidden', `${t.id} is not yours`);
+        if (t.review === 'required') bad('forbidden', `${t.id} is done only when someone else approves it: use request_review, then review_task`);
         if (t.status !== 'in_progress' && !(actor.kind === 'user' && OPEN_STATUSES.includes(t.status as (typeof OPEN_STATUSES)[number]))) bad('conflict', `${t.id} is ${t.status}`);
         const open = pendingReview(t.id as string);
         return saveTask(actor, t, { status: 'done', result: p.result as string, dependency: '', check: '' }, 'task.completed', `${actor.name} completed ${t.id}`, doneNotes(t, actor),
@@ -805,8 +825,8 @@ export function openBoard(options: BoardOptions): Board {
         usd: { type: 'number', description: 'The cost in US dollars.', required: true, min: 0, max: 100_000 },
         task: str('The task it was spent on.', 16),
         model: str('The model used.', 80),
-        tokens_in: { type: 'integer', description: 'Input tokens.', min: 0 },
-        tokens_out: { type: 'integer', description: 'Output tokens.', min: 0 },
+        tokens_in: { type: 'integer', description: 'Input tokens.', min: 0, max: 1_000_000_000_000 },
+        tokens_out: { type: 'integer', description: 'Output tokens.', min: 0, max: 1_000_000_000_000 },
         note: str('Anything worth saying about it.', 300),
       },
       run(actor, p) {
@@ -832,7 +852,7 @@ export function openBoard(options: BoardOptions): Board {
       },
     },
 
-    // A viewer may describe themself; only the caller's own row can be changed.
+    // Only the caller's own row can be changed; viewers stay read-only here too (see server.test).
     set_profile: {
       description: 'Describe yourself to the other participants.', who: 'user', mutates: true,
       params: { about: str('A short biography.', 2000) },
@@ -876,7 +896,7 @@ export function openBoard(options: BoardOptions): Board {
             const latest = new Map(store.ask(`(select {from: events where: (in subject (at rb_q 'q0)) by: {subject: subject} last: (max seq) last_author: (last actor)})`, { str: tasks.map((t) => t.id as string) }).map((e) => [e.subject, e]));
             return tasks.map(({ body: _body, ...rest }) => {
               const e = latest.get(rest.id as string);
-              return { ...rest, last: Math.max(Number(rest.seq ?? 0), Number(e?.last ?? 0)), last_author: e?.last_author ?? '' };
+              return { ...shown(actor, rest), last: Math.max(Number(rest.seq ?? 0), Number(e?.last ?? 0)), last_author: e?.last_author ?? '' };
             });
           })(),
           reviews: actions.list_reviews!.run(actor, {}),
@@ -1025,7 +1045,8 @@ export function openBoard(options: BoardOptions): Board {
   /** Who is told that a task is done: its creator, and whoever holds the task it is a part of. */
   function doneNotes(t: Row, actor: Actor): Note[] {
     const parent = t.parent === '' ? null : store.get('tasks', t.parent as string);
-    const text = `${t.id} is done: ${t.title}${parent ? ` (part of ${parent.id})` : ''}`;
+    // A private parent is named only to those who may see it: the holder above, told below.
+    const text = `${t.id} is done: ${t.title}${parent && parent.private !== 1 ? ` (part of ${parent.id})` : ''}`;
     // Whoever holds the task this is a part of is told, unless the part is private and not theirs to know of.
     const above = parent !== null && (t.private !== 1 || parties(t).includes(parent.assignee as string)) ? (parent.assignee as string) : '';
     return [...parties(t), above].map((dest) => ({ dest, type: 'task.done', subject: t.id as string, text }));
@@ -1045,6 +1066,7 @@ export function openBoard(options: BoardOptions): Board {
       if (f.type === 'string') {
         if (typeof v !== 'string') return bad('invalid', `${name}: "${key}" is text`);
         if (v.includes('\0')) bad('invalid', `${name}: "${key}" holds a NUL character`);
+        if (!v.isWellFormed()) bad('invalid', `${name}: "${key}" is not well-formed text (a lone UTF-16 surrogate)`);
         if (f.required === true && v.trim() === '') bad('invalid', `${name} needs "${key}": ${f.description}`);
         if (f.max !== undefined && v.length > f.max) bad('invalid', `${name}: "${key}" is ${v.length} characters, at most ${f.max} fit`);
         if (f.enum !== undefined && !f.enum.includes(v)) bad('invalid', `${name}: "${key}" is one of ${f.enum.join(', ')}`);
@@ -1161,7 +1183,7 @@ export function openBoard(options: BoardOptions): Board {
       const next = { ...row, avatar: id, avatar_type: type };
       commit('person.avatar_changed', user, user, row.name + ' changed their avatar', { users: [next] });
       const old = row.avatar as string;
-      if (old && old !== id && store.all('users').every((u) => u.avatar !== old)) unlinkSync(join(dirname(path), old));
+      if (old && old !== id && store.all('users').every((u) => u.avatar !== old) && store.all('agents').every((a) => a.avatar !== old)) unlinkSync(join(dirname(path), old));
       return '/api/avatars/' + user + '/' + id;
     },
     clearAvatar(user) {
@@ -1170,6 +1192,13 @@ export function openBoard(options: BoardOptions): Board {
       commit('person.avatar_cleared', user, user, row.name + ' removed their avatar', { users: [next] });
       const old = row.avatar as string;
       if (old && store.all('users').every((u) => u.avatar !== old) && store.all('agents').every((a) => a.avatar !== old)) unlinkSync(join(dirname(options.base), 'avatars', old));
+    },
+    mayKnow(user, subject) {
+      const row = store.get('users', user);
+      if (row === null || row.status !== 'active') return false;
+      const who = actorOfUser(row);
+      const t = TASK_ID.test(subject) ? store.get('tasks', subject) : null;
+      return t === null || canSee(who, t);
     },
     userById(id) {
       const row = store.get('users', id);

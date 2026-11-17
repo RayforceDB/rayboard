@@ -116,7 +116,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   // Every count is what asks something of the person looking: reviews they may decide, open tasks and their
   // own conversations with something new from someone else. Conversations between agents are watched, not counted.
   const counts: Record<string, number> = {
-    reviews: board.reviews.filter((r) => r.requester !== me.id && (r.reviewer === '' || r.reviewer === me.id)).length,
+    reviews: board.reviews.filter((r) => r.requester !== me.id && board.tasks.find((t) => t.id === r.task)?.assignee !== me.id && (r.reviewer === '' || r.reviewer === me.id)).length,
     agents: waiting,
     tasks: unreadCount(board.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled'), unread.reads, me.id),
     chat: unreadCount([...board.channels, ...board.dms.filter((d) => (d.chan as string).split(':').includes(me.id))], unread.reads, me.id),

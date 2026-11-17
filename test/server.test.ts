@@ -273,3 +273,11 @@ test('an agent sets its own avatar and people can see it after restart', async (
     await ownServer.stop(); own.close();
   }
 });
+
+test('MCP offers request_id on every change it accepts it for, and on nothing read-only', async () => {
+  const { mcp } = await import('../src/mcp');
+  const reader = { id: 'a_schemaxx', kind: 'agent' as const, name: 'schema-reader', status: 'active', reason: '' };
+  const tools = ((await mcp(board, reader, { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, 'test')) as any).result.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+  expect(tools.find((t) => t.name === 'create_task')!.inputSchema.properties.request_id).toBeDefined();
+  expect(tools.find((t) => t.name === 'get_task')!.inputSchema.properties.request_id).toBeUndefined();
+});

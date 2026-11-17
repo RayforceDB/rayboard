@@ -342,3 +342,25 @@ test('the dashboard says who last touched each task and channel, so nobody is to
   await board.call(admin, 'post_message', { to: '#general', body: 'hello' });
   expect(((await board.call(admin, 'dashboard', {})) as any).channels[0].last_author).toBe(admin.id);
 });
+
+test('storage and contract guards from the T-15 audit', async () => {
+  const a = (await agent('reporter')).actor;
+  await fails(board.call(admin, 'create_task', { title: 'a\uD800b', outcome: 'x' }), 'invalid');
+  await fails(board.call(a, 'report_cost', { usd: 1, tokens_in: Number.MAX_SAFE_INTEGER }), 'invalid');
+  // Task ids come from the highest id, not a row count.
+  await board.call(admin, 'create_task', { title: 'one', outcome: 'x' });
+  await board.call(admin, 'create_task', { title: 'two', outcome: 'x' });
+  expect(((await board.call(admin, 'create_task', { title: 'three', outcome: 'x' })) as { id: string }).id).toBe('T-3');
+});
+
+test('a log without its snapshot is refused instead of opening part of the board', async () => {
+  const { rmSync } = await import('node:fs');
+  await board.call(admin, 'create_task', { title: 'kept', outcome: 'x' });
+  board.close();
+  board = await open();
+  await board.call(admin, 'create_task', { title: 'after restart', outcome: 'x' });
+  board.close();
+  rmSync(`${base}.qdb`);
+  await expect(open()).rejects.toThrow(/snapshot is missing/);
+  board = await (async () => { const { writeFileSync } = await import('node:fs'); writeFileSync(`${base}.log`, ''); return open(); })();
+});

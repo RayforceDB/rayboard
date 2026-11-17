@@ -1,3 +1,4 @@
+import { existsSync, statSync } from 'node:fs';
 import type { Entry, Row } from './journal';
 import { fromRayNs, toRayNs, type Column, type Ray, type Table } from './ray';
 
@@ -140,6 +141,11 @@ export function openStore(ray: Ray, base: string): Store {
   }
   // The database has one journal for a process; one left open by a board before this one is closed first.
   ray.run(`(do (.log.close) (set rb_seq 0) ${NAMES} null)`);
+  // Every start writes a snapshot before anything else, so a log with no snapshot beside it means the
+  // snapshot was lost: opening would start from part of the board and the next snapshot would make that final.
+  if (!existsSync(`${base}.qdb`) && existsSync(`${base}.log`) && statSync(`${base}.log`).size > 0) {
+    throw new Error(`${base}.log is there but ${base}.qdb is not: the board's snapshot is missing. Restore it from a backup; starting would lose everything before the last start`);
+  }
   ray.journal(base);
   // A snapshot replaces its empty table and has the columns of the version that made it. Carry
   // those rows over explicitly before another write: an upsert cannot introduce a new column.

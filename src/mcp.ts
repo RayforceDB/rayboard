@@ -25,17 +25,20 @@ interface Rpc {
   params?: unknown;
 }
 
-function schema(params: Record<string, Field>): object {
+/** A request id makes a change safe to repeat; the board accepts it on every change that shows no secret. */
+const REQUEST_ID_FIELD = { type: 'string', description: 'Any unique id of yours (8 to 80 of letters, digits, ".", "_", ":", "-"). Repeating a change with the same id returns the first answer instead of doing it twice.', minLength: 8, maxLength: 80 };
+
+function schema(params: Record<string, Field>, idempotent = false): object {
   return {
     type: 'object',
-    properties: Object.fromEntries(Object.entries(params).map(([name, f]) => [name, {
+    properties: Object.fromEntries([...Object.entries(params).map(([name, f]) => [name, {
       type: f.type,
       description: f.description,
       ...(f.enum ? { enum: f.enum } : {}),
       ...(f.type === 'string' && f.max !== undefined ? { maxLength: f.max } : {}),
       ...(f.type !== 'string' && f.max !== undefined ? { maximum: f.max } : {}),
       ...(f.min !== undefined ? { minimum: f.min } : {}),
-    }])),
+    }]), ...(idempotent ? [['request_id', REQUEST_ID_FIELD]] : [])]),
     required: Object.entries(params).filter(([, f]) => f.required === true).map(([name]) => name),
     additionalProperties: false,
   };
@@ -67,7 +70,7 @@ export async function mcp(board: Board, actor: Actor, message: unknown, version:
       return result({
         tools: Object.entries(board.actions)
           .filter(([, a]) => a.who !== 'user')
-          .map(([name, a]) => ({ name, description: a.description, inputSchema: schema(a.params), annotations: { readOnlyHint: !a.mutates && name !== 'inbox' } })),
+          .map(([name, a]) => ({ name, description: a.description, inputSchema: schema(a.params, a.mutates && a.secret !== true), annotations: { readOnlyHint: !a.mutates && name !== 'inbox' } })),
       });
     case 'tools/call': {
       const name = typeof params.name === 'string' ? params.name : '';

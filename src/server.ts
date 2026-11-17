@@ -74,6 +74,7 @@ export function startServer(o: ServerOptions): Server {
   const secure = o.tls !== undefined || o.behindProxy;
   const cookieName = secure ? '__Host-rb' : 'rb';
   const sessions = new Map<string, { user: string; until: number; csrf: string }>();
+  const sockets = new Set<import('bun').ServerWebSocket<{ user: string; key: string }>>();
   let setupCode = board.needsSetup() && o.unsafe === undefined ? randomBytes(12).toString('hex').replace(/(.{6})(?=.)/g, '$1-') : null;
   const loginLimit = limiter(10, 10 * 60_000);
   const joinLimit = limiter(20, 60 * 60_000);
@@ -145,6 +146,17 @@ export function startServer(o: ServerOptions): Server {
     if (o.unsafe === undefined && req.method !== 'GET' && (!sameOrigin(req) || !same(req.headers.get('x-csrf-token') ?? '', session.csrf))) return refuse('forbidden', 'this request did not come from the dashboard');
     return session;
   };
+  /** In unsafe mode nothing signs in, so a browser page from elsewhere must not reach the board through the user's browser:
+   *  a foreign Host is DNS rebinding, a foreign Origin is a cross-site request or socket. */
+  const unsafeRefused = (req: Request): boolean => {
+    if (o.unsafe === undefined) return false;
+    let host: string;
+    try { host = new URL(`http://${req.headers.get('host') ?? ''}`).hostname.replace(/^\[|\]$/g, ''); } catch { return true; }
+    const known = ['localhost', '127.0.0.1', '::1', o.host.replace(/^\[|\]$/g, '')];
+    if (!known.includes(host) && o.host !== '0.0.0.0' && o.host !== '::') return true;
+    const origin = req.headers.get('origin');
+    return origin !== null && !sameOrigin(req);
+  };
   /** Whether a request that rides on a cookie was made by this site's own pages. */
   const sameOrigin = (req: Request): boolean => {
     const origin = req.headers.get('origin');
@@ -165,7 +177,7 @@ export function startServer(o: ServerOptions): Server {
     return session instanceof Response ? session : session.user;
   }
 
-  const server = Bun.serve<{ user: string }>({
+  const server = Bun.serve<{ user: string; key: string }>({
     hostname: o.host,
     port: o.port,
     ...(o.tls ? { tls: { cert: Bun.file(o.tls.cert), key: Bun.file(o.tls.key) } } : {}),
@@ -178,10 +190,11 @@ export function startServer(o: ServerOptions): Server {
       const forwarded = o.behindProxy ? req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() : undefined;
       const ip = forwarded || srv.requestIP(req)?.address || 'unknown';
       try {
+        if (unsafeRefused(req)) return refuse('forbidden', 'in unsafe mode the board answers only its own pages, at a name it listens on');
         if (path === '/ws') {
           const session = sessionOf(req);
           if (session === null || (o.unsafe === undefined && !sameOrigin(req))) return refuse('unauthorized', 'sign in first');
-          return srv.upgrade(req, { data: { user: session.user.id } }) ? (undefined as unknown as Response) : refuse('invalid', 'not a websocket request');
+          return srv.upgrade(req, { data: { user: session.user.id, key: session.key } }) ? (undefined as unknown as Response) : refuse('invalid', 'not a websocket request');
         }
         if (path === '/mcp') {
           if (req.method !== 'POST') return new Response(null, { status: 405, headers: { ...baseHeaders, Allow: 'POST' } });
@@ -221,8 +234,16 @@ export function startServer(o: ServerOptions): Server {
             if (path === '/api/setup') {
               if (setupCode === null || !board.needsSetup()) return refuse('conflict', 'this board is already set up');
               if (!same(text(b.code).trim(), setupCode)) return refuse('unauthorized', 'that is not the setup code printed on the server\'s console');
-              const user = await board.createUser(text(b.name), text(b.password, 1000));
+              // The code is spent before the slow password hash, so two requests at once cannot both create a first account.
+              const code = setupCode;
               setupCode = null;
+              let user: Actor;
+              try {
+                user = await board.createUser(text(b.name), text(b.password, 1000));
+              } catch (err) {
+                setupCode = code;
+                throw err;
+              }
               const started = startSession(user);
               return json(200, { ok: true, user, csrf: started.csrf }, { 'Set-Cookie': started.cookie });
             }
@@ -295,7 +316,8 @@ export function startServer(o: ServerOptions): Server {
       }
     },
     websocket: {
-      open: (ws) => void ws.subscribe('board'),
+      open: (ws) => void sockets.add(ws),
+      close: (ws) => void sockets.delete(ws),
       // The feed only tells; nothing is asked of it.
       message() {},
       maxPayloadLength: 1024,
@@ -303,8 +325,20 @@ export function startServer(o: ServerOptions): Server {
   });
 
   // The feed says that something changed and what; the dashboard asks for what it shows through the API, as itself.
+  // Each socket is told only while its session lasts, and of a private task only if its person may see it.
   board.onChange((entry) => {
-    server.publish('board', JSON.stringify({ seq: entry.seq, type: entry.type, subject: entry.subject, actor: entry.actor, quiet: entry.quiet === true }));
+    const full = JSON.stringify({ seq: entry.seq, type: entry.type, subject: entry.subject, actor: entry.actor, quiet: entry.quiet === true });
+    const bare = JSON.stringify({ seq: entry.seq, quiet: entry.quiet === true });
+    for (const ws of sockets) {
+      const { user, key } = ws.data;
+      const live = o.unsafe !== undefined || ((sessions.get(key)?.until ?? 0) > Date.now() && board.userById(user) !== null);
+      if (!live) {
+        sockets.delete(ws);
+        ws.close(4401, 'the session ended');
+        continue;
+      }
+      ws.send(o.unsafe !== undefined || board.mayKnow(user, entry.subject) ? full : bare);
+    }
   });
   const sweep = setInterval(() => {
     const at = Date.now();

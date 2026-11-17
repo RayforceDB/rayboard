@@ -54,7 +54,7 @@ export function Tasks({ item }: { item: string }) {
     if (!ok) setDropError(`Could not move ${t.id}. Check its permissions, review and current revision.`);
   };
   /** A review this person can decide is the one thing on the board waiting on them. */
-  const mine = new Set(board.reviews.filter((r) => r.requester !== me.id && (r.reviewer === '' || r.reviewer === me.id)).map((r) => r.task as string));
+  const mine = new Set(board.reviews.filter((r) => r.requester !== me.id && board.tasks.find((t) => t.id === r.task)?.assignee !== me.id && (r.reviewer === '' || r.reviewer === me.id)).map((r) => r.task as string));
 
   return (
     <div className="board-view">

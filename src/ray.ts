@@ -443,7 +443,7 @@ export function openRay(options: RayOptions): Ray {
       if (base.includes('\0')) throw new Error('a path may not hold a NUL character');
       const status = c.ray_journal_open(encoder.encode(`${base}\0`), JOURNAL_SYNC);
       c.ray_error_clear();
-      if (status !== 0) throw new RayError('journal', `the journal at ${base} could not be opened (code ${status}): it is open in another process, or its log is damaged`);
+      if (status !== 0) throw new RayError('journal', `the journal at ${base} could not be opened (code ${status}): it is open in another process, or its log is damaged. If the engine printed "badtail ... truncate the file at offset N" just above, a crash cut the last write short: copy ${base}.log aside, truncate it at N (truncate -s N), and start again; only that last unfinished write is lost`);
     },
     close() {
       if (!open) return;
