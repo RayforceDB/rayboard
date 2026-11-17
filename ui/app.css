@@ -132,8 +132,8 @@ main > .head h2 { font-size: 28px; letter-spacing: -0.02em; }
 .title-bar > button.primary { padding: 9px 16px; border-radius: var(--r); }
 
 /* avatars, the agent strip */
-.avatar { flex: none; display: inline-block; }
-.avatar.person { display: inline-grid; place-items: center; border-radius: 28%; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; line-height: 1; }
+.avatar { flex: none; display: inline-block; border-radius: 50%; object-fit: cover; object-position: center; }
+.avatar.person { display: inline-grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; line-height: 1; }
 .strip { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 8px; box-shadow: var(--shadow); overflow-x: auto; flex: none; }
 .strip button { flex: 1 0 auto; justify-content: flex-start; gap: 14px; border: none; background: transparent; border-radius: var(--r-sm); padding: 4px 18px; min-width: 170px; }
 .strip button + button { border-left: 1px solid var(--line); border-radius: 0; }

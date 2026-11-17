@@ -269,7 +269,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             {d.thread.length === 0 && <p className="muted pad">Nobody has written here yet.</p>}
             {d.thread.map((m) => (
               <div key={m.id} className="post">
-                <Avatar id={m.author} size={28} />
+                <Avatar id={m.author} size={32} />
                 <div className="post-body">
                   <div className="row"><b>{name(m.author)}</b><time>{when(m.ts, now)}</time></div>
                   <Prose>{m.body}</Prose>

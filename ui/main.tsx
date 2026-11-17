@@ -122,7 +122,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           <div className="section">
             {NAV.map(([view, label, icon]) => (
               <button key={view} className={route.view === view ? 'on' : ''} onClick={() => open(view)}>
-                <Icon name={icon} size={18} />
+                <Icon name={icon} size={24} />
                 {label}
                 {counts[view] ? <span className="count">{counts[view]}</span> : null}
               </button>
@@ -132,7 +132,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
             <h3>Agents</h3>
             {board.agents.filter((a) => a.status !== 'revoked').map((a) => (
               <button key={a.id} onClick={() => open('chat', `dm:${[me.id, a.id].sort().join(':')}`)} title={a.about || a.kind}>
-                <Avatar id={a.id} size={18} />
+                <Avatar id={a.id} size={24} />
                 <span className="grow">{a.name}</span>
                 {a.status !== 'active' ? <span className="state">{a.status}</span> : <i className={`dot ${a.online ? 'on' : ''}`} title={a.online ? 'online' : 'offline'} />}
               </button>
@@ -141,7 +141,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           <div className="grow" />
           <BuiltOn />
           <div className="me">
-            <Avatar id={current.id} size={26} />
+            <Avatar id={current.id} size={32} />
             {unsafe ? <span className="grow name">{me.name}</span> : <button className="ghost grow name" onClick={() => setProfile(true)} title="Your profile">{current.name}</button>}
             <span className={`live ${live ? 'on' : ''}`} title={live ? 'live' : 'reconnecting'} />
             {unsafe ? <span className="unsafe" title="Nobody signs in: whoever reaches this port oversees the board">unsafe</span> : <button className="ghost icon" onClick={() => void api.logout().then(onSignedOut)} aria-label="Sign out" title="Sign out"><Icon name="out" /></button>}

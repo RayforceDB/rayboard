@@ -28,7 +28,7 @@ export function Agents() {
           return (
             <article key={a.id} className={`agent ${a.status}`}>
               <div className="row">
-                <Avatar id={a.id} size={30} />
+                <Avatar id={a.id} size={44} />
                 <span className="who-state"><b>{a.name}</b><span className={`state ${agentState(board, a).tone}`}><i />{agentState(board, a).label} · {a.kind}</span></span>
                 <span className="grow" />
                 <Badge status={a.status} />

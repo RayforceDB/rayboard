@@ -72,11 +72,12 @@ const SHAPES = [
 const HUES = ['#8b5cf6', '#f5a524', '#22b35e', '#3b82f6', '#ec4899', '#14b8a6', '#f97316'];
 const hash = (s: string): number => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 
-export function Avatar({ id, size = 20 }: { id: string; size?: number }) {
+export function Avatar({ id, size = 24 }: { id: string; size?: number }) {
   const { board, name } = useCtx();
   const person = board.people.find((p) => p.id === id);
   if (person?.avatar) return <img className="avatar person" src={person.avatar} width={size} height={size} alt={`${name(id)} avatar`} />;
-  const agent = board.agents.some((a) => a.id === id);
+  const agent = board.agents.find((a) => a.id === id);
+  if (agent?.avatar) return <img className="avatar person" src={agent.avatar} width={size} height={size} alt={`${name(id)} avatar`} />;
   if (!agent) return <span className="avatar person" style={{ width: size, height: size, fontSize: size * 0.5 }} aria-hidden="true">{name(id).slice(0, 1).toUpperCase()}</span>;
   const h = hash(id);
   const shape = SHAPES[h % SHAPES.length]!;
@@ -88,7 +89,7 @@ export function Avatar({ id, size = 20 }: { id: string; size?: number }) {
   );
 }
 
-export function Who({ id, empty = 'nobody', size = 18 }: { id: string; empty?: string; size?: number }) {
+export function Who({ id, empty = 'nobody', size = 24 }: { id: string; empty?: string; size?: number }) {
   const { name } = useCtx();
   if (id === '') return <span className="who none">{empty}</span>;
   if (id === 'system' || id === 'enrollment') return <span className="who none">{id}</span>;
@@ -126,7 +127,7 @@ export function AgentStrip() {
         const state = agentState(board, a);
         return (
           <button key={a.id} onClick={() => open('chat', `dm:${[me.id, a.id].sort().join(':')}`)} title={a.about || a.kind}>
-            <Avatar id={a.id} size={34} />
+            <Avatar id={a.id} size={40} />
             <span className="who-state"><b>{a.name}</b><span className={`state ${state.tone}`}><i />{state.label}</span></span>
           </button>
         );

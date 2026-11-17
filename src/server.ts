@@ -16,6 +16,7 @@ export const VERSION = '0.1.0';
 const SESSION_MS = 7 * 86_400_000;
 const BODY_MAX = 256 * 1024;
 const AVATAR_MAX = 1 * 1024 * 1024;
+const AGENT_AVATAR_MAX = 1_500_000;
 const STATUS: Record<ErrorCode, number> = { invalid: 400, unauthorized: 401, forbidden: 403, paused: 403, not_found: 404, conflict: 409 };
 const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', map: 'application/json', ico: 'image/x-icon', png: 'image/png', woff2: 'font/woff2' };
 
@@ -168,7 +169,7 @@ export function startServer(o: ServerOptions): Server {
     hostname: o.host,
     port: o.port,
     ...(o.tls ? { tls: { cert: Bun.file(o.tls.cert), key: Bun.file(o.tls.key) } } : {}),
-    maxRequestBodySize: AVATAR_MAX,
+    maxRequestBodySize: AGENT_AVATAR_MAX,
     // An inbox may wait 50 seconds for something to arrive.
     idleTimeout: 90,
     async fetch(req, srv) {

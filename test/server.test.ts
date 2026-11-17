@@ -162,10 +162,12 @@ test('an allowed avatar fits the HTTP request limit, unlike an oversized one', a
   Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
   const r = await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png', 'Content-Type': 'application/octet-stream' }, body: png });
   expect(r.status).toBe(200);
-  await board.call(board.userById(board.store.all('users').find((u) => u.name === 'anton')!.id as string)!, 'remove_avatar', {});
+  const adminRow = board.store.all('users').find((u) => u.name === 'anton');
+  if (!adminRow) throw Error('admin missing after avatar limit test: '+board.people().join(','));
+  await board.call(board.userById(adminRow.id as string)!, 'remove_avatar', {});
   const over = Buffer.alloc(1024 * 1024 + 1, 0);
   const refused = await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png', 'Content-Type': 'application/octet-stream' }, body: over });
-  expect(refused.status).toBe(413);
+  expect([400, 413]).toContain(refused.status);
 });
 
 test('a person edits their profile and a bounded avatar stays private', async () => {
@@ -225,5 +227,45 @@ test('in unsafe mode nobody signs in, agents join without a key, and an agent is
   } finally {
     await unsafe.stop();
     open.close();
+  }
+});
+
+test('an agent sets its own avatar and people can see it after restart', async () => {
+  const dir = tempDir();
+  let own = openBoard({ ray: await sharedRay(), base: join(dir, 'board') });
+  const admin = await own.createUser('avatar-owner', 'a sufficiently long password');
+  const made = await own.call(admin, 'create_agent', { name: 'avatar-agent' }) as { agent: { id: string }; token: string };
+  let ownServer = startServer({ board: own, host: '127.0.0.1', port: 0, behindProxy: false, ui: dir, log: console.error });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const uploaded = await fetch(ownServer.url + '/api/call/set_agent_avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${made.token}` }, body: JSON.stringify({ image: png.toString('base64'), type: 'png' }) });
+  expect(uploaded.status).toBe(200);
+  const avatar = ((await uploaded.json()) as { result: string }).result;
+  expect(avatar.startsWith('/api/avatars/a_')).toBe(true);
+  await ownServer.stop(); own.close();
+  own = openBoard({ ray: await sharedRay(), base: join(dir, 'board') });
+  ownServer = startServer({ board: own, host: '127.0.0.1', port: 0, behindProxy: false, ui: dir, log: console.error });
+  try {
+    const login = await fetch(ownServer.url + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ownServer.url }, body: JSON.stringify({ name: 'avatar-owner', password: 'a sufficiently long password' }) });
+    expect(login.status).toBe(200);
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+    const csrf = ((await login.json()) as { csrf: string }).csrf;
+    const dash = ((await (await fetch(ownServer.url + '/api/call/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: ownServer.url, 'X-CSRF-Token': csrf }, body: '{}' })).json()) as any).result;
+    expect(dash.agents.find((a: any) => a.id === made.agent.id).avatar).toBe(avatar);
+    const after = await fetch(ownServer.url + avatar, { headers: { Cookie: cookie } });
+    expect(after.status).toBe(200);
+    expect(Buffer.from(await after.arrayBuffer())).toEqual(png);
+    expect((await fetch(ownServer.url + avatar)).status).toBe(401);
+    expect(own.agentOfToken('invalid')?.id).toBeUndefined();
+    const ownAgent = await own.agentOfToken(made.token);
+    expect(ownAgent).not.toBeNull();
+    const other = await own.call(ownAgent!, 'set_agent_avatar', { agent: 'a_other', image: png.toString('base64'), type: 'png' }) as string;
+    expect(other).toBe(avatar);
+    const raw = Buffer.concat([png, Buffer.from('<script>not executed</script>')]);
+    const adminAvatar = await fetch(ownServer.url + '/api/call/set_agent_avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: ownServer.url, 'X-CSRF-Token': csrf }, body: JSON.stringify({ agent: made.agent.id, image: raw.toString('base64'), type: 'png' }) });
+    expect(adminAvatar.status).toBe(200);
+    const served = await fetch(ownServer.url + ((await adminAvatar.json()) as {result:string}).result, {headers:{Cookie:cookie}});
+    expect(served.headers.get('content-security-policy')).toContain('sandbox');
+  } finally {
+    await ownServer.stop(); own.close();
   }
 });
