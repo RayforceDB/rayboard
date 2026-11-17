@@ -398,8 +398,8 @@ export function openBoard(options: BoardOptions): Board {
       description: 'The shared channels and how many messages each holds.',
       who: 'any', mutates: false, params: {},
       run() {
-        const counts = new Map(store.ask(`(select {from: messages where: (== kind 'channel) by: {chan: chan} n: (count id) last: (max seq)})`).map((r) => [r.chan, r]));
-        return store.all('channels').map((c) => ({ ...c, messages: counts.get(c.id as string)?.n ?? 0, last: counts.get(c.id as string)?.last ?? 0 }));
+        const counts = new Map(store.ask(`(select {from: messages where: (== kind 'channel) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).map((r) => [r.chan, r]));
+        return store.all('channels').map((c) => ({ ...c, messages: counts.get(c.id as string)?.n ?? 0, last: counts.get(c.id as string)?.last ?? 0, last_author: counts.get(c.id as string)?.last_author ?? '' }));
       },
     },
     read_messages: {
@@ -869,7 +869,16 @@ export function openBoard(options: BoardOptions): Board {
           agents: store.all('agents').map((a) => ({ ...agentView(a), avatar: a.avatar ? `/api/avatars/${a.id}/${a.avatar}` : '', spent: month.get(a.id as string) ?? 0 })),
           people: store.all('users').map(userView),
           channels: actions.list_channels!.run({} as Actor, {}),
-          tasks: store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t)).map(({ body: _body, ...rest }) => rest),
+          tasks: (() => {
+            const tasks = store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t));
+            // What last happened to each task, whoever did it: a change, a comment, evidence or a review.
+            // Without who, a person's own edit would come back to them as something new.
+            const latest = new Map(store.ask(`(select {from: events where: (in subject (at rb_q 'q0)) by: {subject: subject} last: (max seq) last_author: (last actor)})`, { str: tasks.map((t) => t.id as string) }).map((e) => [e.subject, e]));
+            return tasks.map(({ body: _body, ...rest }) => {
+              const e = latest.get(rest.id as string);
+              return { ...rest, last: Math.max(Number(rest.seq ?? 0), Number(e?.last ?? 0)), last_author: e?.last_author ?? '' };
+            });
+          })(),
           reviews: actions.list_reviews!.run(actor, {}),
           dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)),
           threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((r) => {

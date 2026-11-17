@@ -113,7 +113,14 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 
   const waiting = board.agents.filter((a) => a.status === 'pending').length;
-  const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting, tasks: unreadCount(board.tasks,unread.reads,me.id), chat: unreadCount([...board.channels,...board.dms],unread.reads,me.id) };
+  // Every count is what asks something of the person looking: reviews they may decide, open tasks and their
+  // own conversations with something new from someone else. Conversations between agents are watched, not counted.
+  const counts: Record<string, number> = {
+    reviews: board.reviews.filter((r) => r.requester !== me.id && (r.reviewer === '' || r.reviewer === me.id)).length,
+    agents: waiting,
+    tasks: unreadCount(board.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled'), unread.reads, me.id),
+    chat: unreadCount([...board.channels, ...board.dms.filter((d) => (d.chan as string).split(':').includes(me.id))], unread.reads, me.id),
+  };
   return (
     <BoardContext.Provider value={shownCtx}>
       <div className="shell" style={{ gridTemplateColumns: `${sidebar}px minmax(0, 1fr)`, '--sidebar-width': `${sidebar}px` } as CSSProperties}>
