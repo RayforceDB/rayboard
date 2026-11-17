@@ -278,7 +278,10 @@ export function openBoard(options: BoardOptions): Board {
     if (!ref.startsWith('@')) {
       const key = ref.replace(/^#/, '').toLowerCase();
       const channel = store.all('channels').find((c) => c.id === ref || c.name === key);
-      if (channel !== undefined) return { chan: channel.id as string, kind: 'channel', label: `#${channel.name}`, party: [] };
+      if (channel !== undefined) {
+        const dir = directory();
+        return { chan: channel.id as string, kind: 'channel', label: `#${channel.name}`, party: store.all('subscriptions').filter((r) => r.channel === channel.id && r.active === 1 && dir.byId.get(r.actor as string)?.status === 'active').map((r) => r.actor as string) };
+      }
       if (ref.startsWith('#')) bad('not_found', `there is no channel ${clip(ref, 40)}; list_channels shows them, create_channel makes one`);
     }
     const other = someone(ref, 'channel, agent or person');
@@ -316,6 +319,13 @@ export function openBoard(options: BoardOptions): Board {
     store.ask(`(select {from: reviews where: (and (in task (at rb_q 'q0)) (== status 'pending)) desc: seq take: 1})`, { str: [taskId] })[0];
 
   function post(actor: Actor, to: string, body: string): Row {
+    // Oversight permits reading another pair's DM, not injecting into it.
+    to = to.trim();
+    if (to.startsWith('dm:')) {
+      const ids = to.slice(3).split(':');
+      if (ids.length !== 2 || ids[0] === ids[1] || ids.some((id) => !directory().byId.has(id))) bad('invalid', 'a direct conversation needs two distinct existing participants');
+      if (!ids.includes(actor.id)) bad('forbidden', 'you can only write to your own direct messages');
+    }
     const where = place(actor, to);
     const dir = directory();
     const names = [...body.matchAll(/(?:^|[^\w@])@([a-z0-9][a-z0-9_-]{1,31})/gi)].map((m) => m[1]!.toLowerCase());
@@ -338,7 +348,7 @@ export function openBoard(options: BoardOptions): Board {
       where.kind === 'dm' ? `${actor.name} wrote to ${where.label}` : `${actor.name} in ${where.label}: ${clip(body)}`,
       { messages: [message] },
       // A direct message, or the thread of a private task, is told to those it is for and to nobody it happens to name.
-      [...where.party, ...(where.closed === true ? [] : mentioned)].map((dest) => ({ dest, type, subject: where.chan, text: `${actor.name} in ${where.label}: ${clip(body, 400)}` })),
+      [...where.party, ...(where.closed === true ? [] : mentioned)].map((dest) => ({ dest, type: where.kind === 'channel' && !mentioned.includes(dest) ? 'message' : type, subject: where.chan, text: `${actor.name} in ${where.label}: ${clip(body, 400)}` })),
     );
     return message;
   }
@@ -413,9 +423,27 @@ export function openBoard(options: BoardOptions): Board {
     list_channels: {
       description: 'The shared channels and how many messages each holds.',
       who: 'any', mutates: false, params: {},
-      run() {
+      run(actor) {
+        const subscribed = new Set(store.all('subscriptions').filter((r) => r.actor === actor.id && r.active === 1).map((r) => r.channel));
         const counts = new Map(store.ask(`(select {from: messages where: (== kind 'channel) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).map((r) => [r.chan, r]));
-        return store.all('channels').map((c) => ({ ...c, messages: counts.get(c.id as string)?.n ?? 0, last: counts.get(c.id as string)?.last ?? 0, last_author: counts.get(c.id as string)?.last_author ?? '' }));
+        return store.all('channels').map((c) => ({ ...c, subscribed: subscribed.has(c.id), messages: counts.get(c.id as string)?.n ?? 0, last: counts.get(c.id as string)?.last ?? 0, last_author: counts.get(c.id as string)?.last_author ?? '' }));
+      },
+    },
+    set_channel_subscription: {
+      description: 'Subscribe yourself to notifications for future ordinary channel messages, or unsubscribe. Mentions still notify you. This does not subscribe anyone else or change channel access.',
+      who: 'any', mutates: true,
+      params: { channel: str('Channel name (#general) or id.', 80, true), subscribed: { type: 'boolean', description: 'Whether to receive channel notifications.', required: true } },
+      run(actor, p) {
+        const where = place(actor, p.channel as string);
+        if (where.kind !== 'channel') bad('invalid', 'subscriptions apply only to shared channels');
+        const id = `${actor.id}:${where.chan}`;
+        const active = p.subscribed ? 1 : 0;
+        if ((store.get('subscriptions', id)?.active ?? 0) !== active) {
+          commit('channel.subscription', actor.id, where.chan, `${actor.name} ${active ? 'subscribed to' : 'unsubscribed from'} ${where.label}`, {
+            subscriptions: [{ id, channel: where.chan, actor: actor.id, active }],
+          });
+        }
+        return { channel: where.chan, subscribed: active === 1 };
       },
     },
     read_messages: {
@@ -888,7 +916,7 @@ export function openBoard(options: BoardOptions): Board {
           now: at,
           agents: store.all('agents').map((a) => ({ ...agentView(a), avatar: a.avatar ? `/api/avatars/${a.id}/${a.avatar}` : '', spent: month.get(a.id as string) ?? 0 })),
           people: store.all('users').map(userView),
-          channels: actions.list_channels!.run({} as Actor, {}),
+          channels: actions.list_channels!.run(actor, {}),
           tasks: (() => {
             const tasks = store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t));
             // What last happened to each task, whoever did it: a change, a comment, evidence or a review.
