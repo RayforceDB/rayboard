@@ -87,8 +87,8 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); box-shadow: n
 /* brand */
 .brand { display: flex; align-items: center; gap: 10px; font-size: 25px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
 .brand .mark { flex: none; }
-.built-on { display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--faint); font-size: 11px; text-decoration: none; }
-.built-on img { height: 16px; width: auto; }
+.built-on { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: var(--faint); font-size: 12px; text-decoration: none; }
+.built-on img { height: 28px; width: auto; }
 
 /* sign in */
 .signin { min-height: 100%; display: grid; place-items: center; padding: 16px; }
