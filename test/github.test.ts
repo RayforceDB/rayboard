@@ -120,3 +120,15 @@ test('the webhook takes only deliveries signed with the secret kept beside the b
   expect(await ok.json()).toMatchObject({ ok: true, result: 'applied' });
   expect(await (await post({ 'X-Hub-Signature-256': sig })).json()).toMatchObject({ result: 'duplicate' });
 });
+
+test('stage-2 events (check runs) are taken, recorded and ignored, never shown as if supported', async () => {
+  const t = deliver('issues', { action: 'opened', issue: issue(31, 'With checks', '2026-11-17T10:00:00Z'), repository: repo() }).task!;
+  const before = JSON.stringify(await github());
+  const check = deliver('check_run', { action: 'completed', check_run: { head_sha: 'abc', conclusion: 'failure', pull_requests: [{ number: 31 }] }, repository: repo() }, 'chk-1');
+  expect(check.result).toBe('ignored');
+  expect(deliver('check_run', { action: 'completed', check_run: {}, repository: repo() }, 'chk-1').result).toBe('duplicate');
+  expect(JSON.stringify(await github())).toBe(before);
+  const status = (await board.call(admin, 'github_status', {})) as { deliveries: { id: string; result: string }[] };
+  expect(status.deliveries.find((d) => d.id === 'chk-1')).toMatchObject({ result: 'ignored' });
+  void t;
+});
