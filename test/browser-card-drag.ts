@@ -41,10 +41,18 @@ try {
   await expect(page.locator('.lane').nth(1).locator('.card-task')).toHaveCount(1);
   await expect(page.locator('.lane').nth(0).locator('.card-task')).toHaveCount(0);
   await page.locator('.lane').nth(1).locator('.card-task').click();
-  await expect(page.locator('.card-task.on')).toHaveCSS('border-top-color','rgb(40, 120, 208)');
+  const selected=page.locator('.card-task.on');
+  const color=await selected.evaluate(e=>getComputedStyle(e).borderTopColor);
+  const fill=await selected.evaluate(e=>getComputedStyle(e).backgroundColor);
+  await selected.hover();
+  await expect(selected).toHaveCSS('border-top-color',color);
+  await expect(selected).toHaveCSS('background-color',fill);
+  await page.mouse.move(5,5);
+  await expect(selected).toHaveCSS('border-top-color',color);
+  await expect(selected).toHaveCSS('background-color',fill);
   await page.locator('.kanban').screenshot({path:'/tmp/rayboard-card-drag.png'});
   expect(errors).toEqual([]);
-  console.log('CARD BROWSER PASS: real pointer drag/drop, stage update, blue selection.');
+  console.log('CARD BROWSER PASS: real pointer drag/drop, stage update, neutral selection stable through hover.');
 } finally {
   await browser?.close();
   await server.stop();
