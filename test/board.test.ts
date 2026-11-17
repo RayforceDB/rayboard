@@ -140,6 +140,19 @@ test('an agent is paused at its budget, and a rotated token replaces the old one
   expect(costs.days[0]!.day).toBe('2026-11-16');
 });
 
+test('a person can describe themself and upload a bounded avatar that survives restart', async () => {
+  const about = 'Designing Rayfall and analytical engines.';
+  await board.call(admin, 'set_profile', { about });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  const url = board.setAvatar(admin.id, png, 'png');
+  expect(board.avatar(admin.id)?.bytes.equals(png)).toBe(true);
+  board.close();
+  board = await open();
+  const person = (await board.call(board.userById(admin.id)!, 'dashboard', {}) as any).people.find((p: any) => p.id === admin.id);
+  expect(person).toMatchObject({ about, avatar: url });
+  expect(board.avatar(admin.id)?.bytes.equals(png)).toBe(true);
+});
+
 test('the board is the same after a restart, and logins hold', async () => {
   const { token } = await agent('aa');
   await board.call(board.agentOfToken(token)!, 'create_task', { outcome: 'it can be seen to work', title: 'Survives' });

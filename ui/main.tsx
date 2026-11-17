@@ -100,11 +100,12 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   }, [error]);
 
   const readOnly = me.role === 'viewer';
+  const current = board?.people.find((p) => p.id === me.id) ?? me;
   const ctx = useMemo((): Ctx | null => {
     if (board === null) return null;
     const names = new Map([...board.agents, ...board.people].map((a) => [a.id as string, a.name as string]));
-    return { board, tick, me, name: (id) => names.get(id) ?? id, act, open };
-  }, [board, tick, me, act, open]);
+    return { board, tick, me: current, name: (id) => names.get(id) ?? id, act, open };
+  }, [board, tick, current, act, open]);
   const shownCtx = useMemo((): Ctx | null => ctx === null ? null : readOnly ? { ...ctx, act: async () => { setError('Viewers have read-only access'); return false; } } : ctx, [ctx, readOnly]);
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 
@@ -137,8 +138,8 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           <div className="grow" />
           <BuiltOn />
           <div className="me">
-            <Avatar id={me.id} size={26} />
-            {unsafe ? <span className="grow name">{me.name}</span> : <button className="ghost grow name" onClick={() => setProfile(true)} title="Your profile">{me.name}</button>}
+            <Avatar id={current.id} size={26} />
+            {unsafe ? <span className="grow name">{me.name}</span> : <button className="ghost grow name" onClick={() => setProfile(true)} title="Your profile">{current.name}</button>}
             <span className={`live ${live ? 'on' : ''}`} title={live ? 'live' : 'reconnecting'} />
             {unsafe ? <span className="unsafe" title="Nobody signs in: whoever reaches this port oversees the board">unsafe</span> : <button className="ghost icon" onClick={() => void api.logout().then(onSignedOut)} aria-label="Sign out" title="Sign out"><Icon name="out" /></button>}
           </div>
