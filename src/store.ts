@@ -30,6 +30,8 @@ export const SCHEMA = {
   },
   settings: { keyed: true, columns: { id: 'str', value: 'str' } },
   channels: { keyed: true, columns: { id: 'str', name: 'str', topic: 'str', created: 'ts', by: 'str' } },
+  /** Explicit per-actor channel notifications; inactive rows preserve unsubscribe history. */
+  subscriptions: { keyed: true, columns: { id: 'str', channel: 'str', actor: 'str', active: 'i64' } },
   tasks: {
     keyed: true,
     columns: {
