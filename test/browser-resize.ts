@@ -54,6 +54,8 @@ try {
   await chat.focus();
   await page.keyboard.press('ArrowRight');
   await expect.poll(() => chat.getAttribute('aria-valuenow')).toBe('232');
+  await page.reload();
+  await expect.poll(() => chat.getAttribute('aria-valuenow')).toBe('232');
   const watched = page.locator('.chat aside > button').filter({ hasText: 'morsel-member-client' });
   const label = watched.locator('.grow');
   await expect(label).toBeVisible();
@@ -77,6 +79,9 @@ try {
   await page.mouse.up();
   await expect.poll(async () => Number(await handle.getAttribute('aria-valuenow'))).toBeGreaterThan(400);
   expect((await drawer.boundingBox())!.width).toBeGreaterThan(before!.width);
+  const taskWidth = await handle.getAttribute('aria-valuenow');
+  await page.reload();
+  await expect.poll(() => handle.getAttribute('aria-valuenow')).toBe(taskWidth);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.shell > .resize-handle')).toBeHidden();

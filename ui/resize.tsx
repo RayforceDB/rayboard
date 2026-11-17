@@ -8,15 +8,15 @@ export function panelWidth(name: string, initial: number, min: number, max: numb
 }
 
 /** An edge separator which supports pointer dragging and keyboard arrows. Never steals pointer input. */
-export function ResizeHandle({ name, value, setValue, min, max, reverse = false }: {
-  name: string; value: number; setValue: (value: number) => void;
+export function ResizeHandle({ name, value, setValue, min, max, reverse = false, storageName = name }: {
+  name: string; storageName?: string; value: number; setValue: (value: number) => void;
   min: number; max: number; reverse?: boolean;
 }) {
   const drag = useRef<{ id: number; x: number; width: number } | null>(null);
   const resize = (next: number): void => {
     const bounded = Math.max(min, Math.min(max, Math.round(next)));
     setValue(bounded);
-    try { localStorage.setItem(`rayboard.panel.${name}.v1`, JSON.stringify(bounded)); } catch { /* private browsing remains usable */ }
+    try { localStorage.setItem(`rayboard.panel.${storageName}.v1`, JSON.stringify(bounded)); } catch { /* private browsing remains usable */ }
   };
   const down = (e: PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;

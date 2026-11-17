@@ -190,7 +190,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     return () => window.removeEventListener('keydown', key);
   }, [onClose]);
   const [width, setWidth] = useState(() => panelWidth('task', 400, 320, 720));
-  const shell = (body: ReactNode) => <aside className="drawer" style={{ width }} aria-label={`Task ${id}`}><ResizeHandle name="task panel" value={width} setValue={setWidth} min={320} max={720} reverse />{body}</aside>;
+  const shell = (body: ReactNode) => <aside className="drawer" style={{ width }} aria-label={`Task ${id}`}><ResizeHandle name="task panel" storageName="task" value={width} setValue={setWidth} min={320} max={720} reverse />{body}</aside>;
   if (missing) return shell(<><header className="drawer-bar"><code>{id}</code><span className="grow" /><button className="ghost icon" onClick={onClose} aria-label="Close"><Icon name="x" /></button></header><p className="error pad">{missing}</p></>);
   if (d === null) return shell(null);
   const t = d.task;

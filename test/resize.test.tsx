@@ -39,3 +39,16 @@ test('pointer drag follows the correct edge and releases capture', async () => {
   expect(captured && released).toBe(true);
   await act(async () => { tree!.unmount(); });
 });
+
+test('task and conversation handles use the keys their panels read', async () => {
+  for (const [label, storage, start] of ([['task panel', 'task', 400], ['conversation list', 'conversations', 220]] as [string, string, number][])) {
+    let value = start;
+    let tree: ReturnType<typeof create>;
+    await act(async () => { tree = create(<ResizeHandle name={label} storageName={storage} value={value} setValue={v => { value = v; }} min={180} max={720} />); });
+    const handle = tree!.root.findByProps({ role: 'separator' });
+    await act(async () => { handle.props.onKeyDown({ key: 'ArrowRight', preventDefault() {}, shiftKey: false }); });
+    expect(values.get(`rayboard.panel.${storage}.v1`)).toBe(String(start + 12));
+    expect(panelWidth(storage, start, 180, 720)).toBe(start + 12);
+    await act(async () => { tree!.unmount(); });
+  }
+});

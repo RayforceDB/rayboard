@@ -49,7 +49,7 @@ export function Chat({ item }: { item: string }) {
         {watched.length > 0 && <h3>Between agents</h3>}
         {watched.map((d) => <button key={d.chan} className={`${d.chan === current ? 'on' : ''} ${unread(d) ? 'unread' : ''}`} onClick={() => open('chat', d.chan)}><span className="grow">{dmLabel(d.chan)}</span><span className="muted">{d.n}</span></button>)}
       </aside>
-      <ResizeHandle name="conversation list" value={listWidth} setValue={setListWidth} min={180} max={360} />
+      <ResizeHandle name="conversation list" storageName="conversations" value={listWidth} setValue={setListWidth} min={180} max={360} />
       <section>
         <header className="head">
           <h2>{channel ? `# ${channel.name}` : current.startsWith('dm:') ? dmLabel(current) : 'Messages'}</h2>
