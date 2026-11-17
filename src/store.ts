@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, openSync, readSync, statSync, truncateSync } from 'node:fs';
 import type { Entry, Row } from './journal';
 import { fromRayNs, toRayNs, type Column, type Ray, type Table } from './ray';
 
@@ -129,6 +129,43 @@ const SNAPSHOT_EVERY = 5000;
 /** The names this side uses for what it hands over; they are emptied so that a snapshot holds the tables and nothing passing. */
 const NAMES = '(set rb_batch null) (set rb_q null) (set rb_e null) (set rb_f null)';
 
+/** The engine's frame header: a u32 prefix, version, flags, endian, message type, then the payload size as an i64. */
+const FRAME_HEADER = 16;
+const FRAME_PREFIX = 0xcefadefa;
+
+/**
+ * A crash in the middle of a write leaves the log ending inside its last frame. Every frame before it
+ * is whole, and the request that frame belonged to was never answered, so dropping it is what "all of
+ * a request or none of it" means. The damaged log is kept beside the board, cut back to its whole
+ * frames, and the board opens. Anything else that is wrong with a log (a broken frame with more after
+ * it) is not a crash's doing: the log is left as it is and the engine refuses it.
+ */
+export function recoverTornTail(ray: Ray, log: string, say: (line: string) => void = (line) => console.log(line)): { dropped: number } | null {
+  if (!existsSync(log)) return null;
+  if (/["\\]/.test(log)) throw new Error('the board\'s path may not hold " or \\');
+  const size = statSync(log).size;
+  const checked = ray.query(`(.log.validate "${log}")`) as unknown as (number | bigint)[];
+  const valid = Number(checked[1]);
+  if (!Number.isSafeInteger(valid) || valid >= size) return null;
+  const rest = size - valid;
+  const head = Buffer.alloc(Math.min(rest, FRAME_HEADER));
+  const fd = openSync(log, 'r');
+  try { readSync(fd, head, 0, head.length, valid); } finally { closeSync(fd); }
+  // Torn: what follows the whole frames is the start of one more frame that never finished.
+  const prefix = Buffer.alloc(4); prefix.writeUInt32LE(FRAME_PREFIX);
+  const startsAFrame = head.subarray(0, Math.min(4, head.length)).equals(prefix.subarray(0, Math.min(4, head.length)));
+  const unfinished = rest < FRAME_HEADER || (() => {
+    const declared = head.readBigInt64LE(8);
+    return declared > 0n && declared <= 256n * 1024n * 1024n && BigInt(FRAME_HEADER) + declared > BigInt(rest);
+  })();
+  if (!startsAFrame || !unfinished) return null;
+  const kept = `${log}.torn-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  copyFileSync(log, kept);
+  truncateSync(log, valid);
+  say(`log: the last write was cut short by a crash: dropped its ${rest} unfinished bytes (that request was never answered); every earlier write is kept. The log as it was is saved as ${kept}`);
+  return { dropped: rest };
+}
+
 /**
  * Opens the board kept at `base` (`<base>.qdb`, `<base>.log`), or begins an empty one there.
  * Throws when another process has it open.
@@ -148,6 +185,7 @@ export function openStore(ray: Ray, base: string): Store {
   if (!existsSync(`${base}.qdb`) && existsSync(`${base}.log`) && statSync(`${base}.log`).size > 0) {
     throw new Error(`${base}.log is there but ${base}.qdb is not: the board's snapshot is missing. Restore it from a backup; starting would lose everything before the last start`);
   }
+  recoverTornTail(ray, `${base}.log`);
   ray.journal(base);
   // A snapshot replaces its empty table and has the columns of the version that made it. Carry
   // those rows over explicitly before another write: an upsert cannot introduce a new column.
