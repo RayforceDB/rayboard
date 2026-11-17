@@ -1,8 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { readOldJournal, type Entry, type Row } from './journal';
 import type { Ray } from './ray';
 import { NEVER, openStore, type Store } from './store';
+import { dirname, join } from 'node:path';
 
 // The board: who may do what, and what each accepted change writes. Every change is checked
 // against the tables in RayforceDB, applied to them, and in the database's log on disk before it
@@ -63,6 +64,10 @@ export interface Board {
   /** The agent a token belongs to, or null. Marks the agent as seen. */
   agentOfToken(token: string): Actor | null;
   userById(id: string): Actor | null;
+  /** Saves this person's PNG/JPEG, then records its hash as part of the same board update. */
+  setAvatar(user: string, bytes: Buffer, type: string): string;
+  /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
+  avatar(user: string): { bytes: Buffer; type: string; id: string } | null;
   /** An agent asks to join with the enrollment key. It gets a token at once and can do nothing until a person approves it. */
   register(key: string, p: { name: string; kind?: string; about?: string }, open?: boolean): { agent: Row; token: string };
   /** The first person overseeing the board, or null when there is none yet. */
@@ -183,7 +188,7 @@ export function openBoard(options: BoardOptions): Board {
     const { token: _token, ...rest } = a;
     return { ...rest, online: Date.now() - (seen.get(a.id as string) ?? 0) < ONLINE_MS ? 1 : 0 };
   };
-  const userView = (u: Row): Row => ({ id: u.id!, name: u.name!, status: u.status!, role: roleOf(u), created: u.created! });
+  const userView = (u: Row): Row => ({ id: u.id!, name: u.name!, status: u.status!, role: roleOf(u), about: u.about ?? '', avatar: u.avatar ? `/api/avatars/${u.id}/${u.avatar}` : '', created: u.created! });
   const actorOfAgent = (a: Row): Actor => ({ id: a.id as string, kind: 'agent', name: a.name as string, status: a.status as string, reason: a.reason as string });
   const actorOfUser = (u: Row): Actor => ({ id: u.id as string, kind: 'user', name: u.name as string, status: u.status as string, reason: '', role: roleOf(u) });
 
@@ -767,6 +772,17 @@ export function openBoard(options: BoardOptions): Board {
       },
     },
 
+    // A viewer may describe themself; only the caller's own row can be changed.
+    set_profile: {
+      description: 'Describe yourself to the other participants.', who: 'user', mutates: false,
+      params: { about: str('A short biography.', 2000) },
+      run(actor, p) {
+        const row = store.get('users', actor.id)!;
+        const next = { ...row, about: clip(p.about as string, 2000) };
+        commit('person.profile_changed', actor.id, actor.id, actor.name + ' changed their profile', { users: [next] });
+        return userView(next);
+      },
+    },
     // ---- for the people overseeing the board ----
     dashboard: {
       description: 'Everything the dashboard shows, in one answer.',
@@ -986,6 +1002,28 @@ export function openBoard(options: BoardOptions): Board {
       if (row === null || !ok || row.status === 'revoked') return null;
       seen.set(row.id as string, Date.now());
       return actorOfAgent(row);
+    },
+    avatar(user) {
+      const row = store.get('users', user);
+      if (row === null || typeof row.avatar !== 'string' || !/^[a-f0-9]{64}$/.test(row.avatar)) return null;
+      const path = join(dirname(options.base), 'avatars', row.avatar);
+      if (!existsSync(path)) return null;
+      return { bytes: readFileSync(path), type: row.avatar_type === 'png' ? 'image/png' : 'image/jpeg', id: row.avatar };
+    },
+    setAvatar(user, bytes, type) {
+      const row = store.get('users', user) ?? bad('not_found', 'no such person');
+      const mime = type === 'png' ? 'image/png' : type === 'jpg' ? 'image/jpeg' : '';
+      const signature = type === 'png' ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : type === 'jpg' && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+      if (mime === '' || !signature) bad('invalid', 'an avatar is a PNG or JPEG image');
+      const id = createHash('sha256').update(bytes).digest('hex');
+      const path = join(dirname(options.base), 'avatars', id);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      if (!existsSync(path)) writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
+      const next = { ...row, avatar: id, avatar_type: type };
+      commit('person.avatar_changed', user, user, row.name + ' changed their avatar', { users: [next] });
+      const old = row.avatar as string;
+      if (old && old !== id && store.all('users').every((u) => u.avatar !== old)) unlinkSync(join(dirname(path), old));
+      return '/api/avatars/' + user + '/' + id;
     },
     userById(id) {
       const row = store.get('users', id);

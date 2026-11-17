@@ -129,6 +129,31 @@ test('a person accepts an invitation once, with a role enforced on existing sess
   expect((await post('/api/call/post_message', { to: '#general', body: 'not allowed' }, asMember)).status).toBe(403);
   expect((await post('/api/call/get_task', { task: 'T-1' }, asMember)).status).toBe(200);
 });
+test('a person edits their profile and a bounded avatar stays private', async () => {
+  const about = 'Works on Rayforce and likes precise tools.';
+  const profile = await post('/api/call/set_profile', { about }, asUser());
+  expect(profile.status).toBe(200);
+  const dash = (await (await post('/api/call/dashboard', {}, asUser())).json()).result;
+  expect(dash.people.find((p: any) => p.name === 'anton')).toMatchObject({ about, avatar: '' });
+  expect(dash.people[0].pass).toBeUndefined();
+  expect((await post('/api/call/set_profile', { about: 'x'.repeat(2001) }, asUser())).status).toBe(400);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+  expect((await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png', 'Content-Type': 'application/octet-stream' }, body: png })).status).toBe(200);
+  const image = (await (await post('/api/call/dashboard', {}, asUser())).json()).result.people[0].avatar;
+  const shown = await fetch(server.url + image, { headers: { Cookie: cookie } });
+  expect(shown.status).toBe(200);
+  expect(shown.headers.get('content-type')).toBe('image/png');
+  expect(Buffer.from(await shown.arrayBuffer()).equals(png)).toBe(true);
+  expect((await fetch(server.url + image)).status).toBe(401);
+  expect((await fetch(server.url + image.replace(/.$/, (c: string) => c === '0' ? '1' : '0'), { headers: { Cookie: cookie } })).status).toBe(404);
+  const fake = Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), Buffer.from('<script>not executed</script>')]);
+  const uploaded = await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png', 'Content-Type': 'application/octet-stream' }, body: fake });
+  expect(uploaded.status).toBe(200);
+  const next = (await (await post('/api/call/dashboard', {}, asUser())).json()).result.people[0].avatar;
+  expect((await fetch(server.url + next, { headers: { Cookie: cookie } })).headers.get('content-security-policy')).toContain('sandbox');
+  expect((await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png' }, body: 'not an image' })).status).toBe(400);
+});
+
 test('what is not JSON, or too much, is refused', async () => {
   expect((await fetch(`${server.url}/api/call/whoami`, { method: 'POST', headers: asAgent(), body: 'x' })).status).toBe(400);
   expect((await post('/api/call/whoami', 'x'.repeat(300_000), asAgent())).status).toBe(413);

@@ -21,6 +21,9 @@ test('an old snapshot and journal are carried into the current schema before the
   board = await openBoard({ ray, base });
   expect(await board.login('newperson', 'a private passphrase')).toMatchObject({ role: 'member' });
   expect(board.userById('u_old')).toMatchObject({ name: 'oldperson', role: 'admin' });
+  const profile = await board.call(old, 'set_profile', { about: 'Old user, new profile' });
+  expect(profile).toMatchObject({ about: 'Old user, new profile', role: 'admin' });
+  expect(await board.login('oldperson', 'not the right password')).toBeNull();
   expect(await board.call(board.userById(member.id)!, 'list_channels', {})).toMatchObject([{ name: 'old-board' }]);
   board.close();
 });

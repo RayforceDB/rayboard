@@ -20,6 +20,7 @@ export function People() {
         {board.people.map((p) => (
           <article key={p.id} className="agent">
             <div className="row"><Avatar id={p.id} size={30} /><b>{p.name}</b><span className="grow" /><span className="badge">{p.role}</span></div>
+            {p.about && <p className="about">{p.about}</p>}
             <p className="muted about">{p.role === 'admin' ? 'Manages people, agents and all work.' : p.role === 'member' ? 'Collaborates on tasks, messages and reviews. Cannot manage access or see unrelated private work.' : 'Read-only access to shared work. Cannot manage access or see unrelated private work.'}</p>
             {admin && <div className="row end"><button onClick={() => setRoleOf(p)}>Change role</button></div>}
           </article>

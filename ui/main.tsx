@@ -8,6 +8,7 @@ import { Icon, type IconName } from './icons';
 import { AgentStrip, Avatar, Badge, BoardContext, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
+import { Profile } from './profile';
 
 /** The sidebar: what there is to look at, in the order of a working day. */
 const NAV: [view: string, label: string, icon: IconName][] = [
@@ -77,6 +78,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   });
   const [error, setError] = useState('');
   const [changing, setChanging] = useState(false);
+  const [profile, setProfile] = useState(false);
   const open = useCallback((view: string, item = '') => {
     history.replaceState(null, '', `#${view}${item ? `/${encodeURIComponent(item)}` : ''}`);
     setRoute({ view, item });
@@ -136,7 +138,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           <BuiltOn />
           <div className="me">
             <Avatar id={me.id} size={26} />
-            {unsafe ? <span className="grow name">{me.name}</span> : <button className="ghost grow name" onClick={() => setChanging(true)} title="Change password">{me.name}</button>}
+            {unsafe ? <span className="grow name">{me.name}</span> : <button className="ghost grow name" onClick={() => setProfile(true)} title="Your profile">{me.name}</button>}
             <span className={`live ${live ? 'on' : ''}`} title={live ? 'live' : 'reconnecting'} />
             {unsafe ? <span className="unsafe" title="Nobody signs in: whoever reaches this port oversees the board">unsafe</span> : <button className="ghost icon" onClick={() => void api.logout().then(onSignedOut)} aria-label="Sign out" title="Sign out"><Icon name="out" /></button>}
           </div>
@@ -151,6 +153,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           {route.view === 'costs' && <Costs />}
           {route.view === 'activity' && <Activity />}
         </main>
+        {profile && <Profile onClose={() => setProfile(false)} onPassword={() => { setProfile(false); setChanging(true); }} />}
         {changing && <Password onClose={() => setChanging(false)} onDone={onSignedOut} />}
         {error && <div className="toast" role="alert" onClick={() => setError('')}>{error}</div>}
       </div>

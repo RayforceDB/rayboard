@@ -72,6 +72,8 @@ const hash = (s: string): number => [...s].reduce((h, c) => (h * 31 + c.charCode
 
 export function Avatar({ id, size = 20 }: { id: string; size?: number }) {
   const { board, name } = useCtx();
+  const person = board.people.find((p) => p.id === id);
+  if (person?.avatar) return <img className="avatar person" src={person.avatar} width={size} height={size} alt={`${name(id)} avatar`} />;
   const agent = board.agents.some((a) => a.id === id);
   if (!agent) return <span className="avatar person" style={{ width: size, height: size, fontSize: size * 0.5 }} aria-hidden="true">{name(id).slice(0, 1).toUpperCase()}</span>;
   const h = hash(id);

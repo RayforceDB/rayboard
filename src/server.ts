@@ -15,6 +15,7 @@ import { mcp } from './mcp';
 export const VERSION = '0.1.0';
 const SESSION_MS = 7 * 86_400_000;
 const BODY_MAX = 256 * 1024;
+const AVATAR_MAX = 1 * 1024 * 1024;
 const STATUS: Record<ErrorCode, number> = { invalid: 400, unauthorized: 401, forbidden: 403, paused: 403, not_found: 404, conflict: 409 };
 const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', map: 'application/json', ico: 'image/x-icon', png: 'image/png', woff2: 'font/woff2' };
 
@@ -252,6 +253,24 @@ export function startServer(o: ServerOptions): Server {
             const actor = who(req);
             if (actor instanceof Response) return actor;
             return json(200, { ok: true, actions: Object.fromEntries(Object.entries(board.actions).filter(([, a]) => a.who === 'any' || a.who === actor.kind).map(([name, a]) => [name, { description: a.description, params: a.params }])) });
+          }
+          const avatar = /^\/api\/avatars\/([a-z0-9_]{2,40})\/([a-f0-9]{64})$/.exec(path);
+          if (avatar && req.method === 'GET') {
+            if (sessionOf(req) === null) return refuse('unauthorized', 'sign in first');
+            const image = board.avatar(avatar[1]!);
+            if (image === null || image.id !== avatar[2]) return refuse('not_found', 'no such avatar');
+            return new Response(new Uint8Array(image.bytes), { headers: { ...baseHeaders, 'Content-Type': image.type, 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=31536000, immutable' } });
+          }
+          if (path === '/api/avatar' && req.method === 'POST') {
+            const session = trusted(req);
+            if (session instanceof Response) return session;
+            const type = req.headers.get('x-avatar-type');
+            if (type !== 'png' && type !== 'jpg') return refuse('invalid', 'an avatar is a PNG or JPEG image');
+            const length = Number(req.headers.get('content-length'));
+            if (!Number.isSafeInteger(length) || length < 1 || length > AVATAR_MAX) return refuse('invalid', 'an avatar may be up to 1 MB');
+            const bytes = Buffer.from(await req.arrayBuffer());
+            if (bytes.length < 1 || bytes.length > AVATAR_MAX) return refuse('invalid', 'an avatar may be up to 1 MB');
+            return json(200, { ok: true, result: board.setAvatar(session.user.id, bytes, type) });
           }
           const call = /^\/api\/call\/([a-z_]{1,40})$/.exec(path);
           if (call !== null && req.method === 'POST') {

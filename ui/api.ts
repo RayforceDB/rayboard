@@ -38,6 +38,12 @@ export const api = {
   join: (key: string, name: string, password: string) => send('/api/join', { key, name, password }),
   login: (name: string, password: string) => send('/api/login', { name, password }),
   logout: () => send('/api/logout', {}),
+  avatar: async (file: File): Promise<string> => {
+    const res = await fetch('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrf, 'X-Avatar-Type': file.type === 'image/png' ? 'png' : 'jpg' }, body: file });
+    const data = await res.json();
+    if (!res.ok || !data.ok) { const e = new Error(data?.error?.message ?? 'the upload failed') as Error & { code?: string }; e.code = data?.error?.code; throw e; }
+    return data.result;
+  },
   password: (current: string, next: string) => send('/api/password', { current, next }),
   call: async <T = any>(action: string, params: Row = {}): Promise<T> => (await send(`/api/call/${action}`, params)).result as T,
 };
