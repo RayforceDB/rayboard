@@ -775,7 +775,7 @@ export function openBoard(options: BoardOptions): Board {
 
     // A viewer may describe themself; only the caller's own row can be changed.
     set_profile: {
-      description: 'Describe yourself to the other participants.', who: 'user', mutates: false,
+      description: 'Describe yourself to the other participants.', who: 'user', mutates: true,
       params: { about: str('A short biography.', 2000) },
       run(actor, p) {
         const row = store.get('users', actor.id)!;

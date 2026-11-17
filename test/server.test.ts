@@ -10,6 +10,7 @@ let cookie = '';
 let token = '';
 let csrf = '';
 
+
 beforeAll(async () => {
   const dir = tempDir();
   board = openBoard({ ray: await sharedRay(), base: join(dir, 'board') });
@@ -129,6 +130,16 @@ test('a person accepts an invitation once, with a role enforced on existing sess
   expect((await post('/api/call/post_message', { to: '#general', body: 'not allowed' }, asMember)).status).toBe(403);
   expect((await post('/api/call/get_task', { task: 'T-1' }, asMember)).status).toBe(200);
 });
+test('a viewer cannot change a profile through a falsely read-only action', async () => {
+  const viewer = await board.createUser('profile-viewer', 'a sufficiently long password', 'viewer');
+  const actor = board.userById(viewer.id)!;
+  const about = 'must not be saved';
+  await expect(board.call(actor, 'set_profile', { about })).rejects.toMatchObject({ code: 'forbidden' });
+  const found = await fetch(server.url + '/api/call/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json', ...asUser() }, body: '{}' });
+  const dash = (await found.json() as any).result;
+  expect(dash.people.find((p: any) => p.id === viewer.id).about ?? '').toBe('');
+});
+
 test('a person edits their profile and a bounded avatar stays private', async () => {
   const about = 'Works on Rayforce and likes precise tools.';
   const profile = await post('/api/call/set_profile', { about }, asUser());
