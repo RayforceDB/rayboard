@@ -141,8 +141,35 @@ export function openStore(ray: Ray, base: string): Store {
   // The database has one journal for a process; one left open by a board before this one is closed first.
   ray.run(`(do (.log.close) (set rb_seq 0) ${NAMES} null)`);
   ray.journal(base);
+  // A snapshot replaces its empty table and has the columns of the version that made it. Carry
+  // those rows over explicitly before another write: an upsert cannot introduce a new column.
+  // This is source written here; all the values, including a password hash, stay bound as data.
+  for (const t of TABLES) {
+    const present = new Set(ray.table(`(select {from: ${t} take: 0})`).names);
+    const added = Object.entries(SCHEMA[t].columns).filter(([name]) => !present.has(name));
+    if (added.length === 0) continue;
+    const before = rowsOf(ray.table(`(select {from: ${t}})`));
+    const migrated = Object.fromEntries(Object.entries(SCHEMA[t].columns).map(([name, kind]) => [name, column(kind, before.map((r) => r[name]), t)]));
+    ray.bind('rb_batch', migrated);
+    ray.run(`(set ${t} rb_batch)`);
+    console.log(`migrated ${t}: added ${added.map(([name]) => name).join(', ')}; kept ${before.length} rows`);
+  }
   /** How many expressions wait in rb_p0, rb_p1, ... to be logged. */
   let pending = 0;
+  // An older snapshot loaded over the current empty schema has to be rebuilt before any upsert.
+  const migrate = (): void => {
+    for (const t of TABLES) {
+      const present = new Set(ray.table(`(select {from: ${t} take: 0})`).names);
+      const added = Object.entries(SCHEMA[t].columns).filter(([name]) => !present.has(name));
+      if (added.length === 0) continue;
+      const before = rowsOf(ray.table(`(select {from: ${t}})`));
+      const migrated = Object.fromEntries(Object.entries(SCHEMA[t].columns).map(([name, kind]) => [name, column(kind, before.map((r) => r[name]), t)]));
+      ray.bind('rb_batch', migrated);
+      ray.run(`(set ${t} rb_batch)`);
+      console.log(`migrated ${t}: added ${added.map(([name]) => name).join(', ')}; kept ${before.length} rows`);
+    }
+  };
+  migrate();
   /** Frames written since the last snapshot. */
   let frames = 0;
 
