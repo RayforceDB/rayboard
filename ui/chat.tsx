@@ -54,6 +54,7 @@ export function Chat({ item }: { item: string }) {
         <header className="head">
           <h2>{channel ? `# ${channel.name}` : current.startsWith('dm:') ? dmLabel(current) : 'Messages'}</h2>
           {channel?.topic && <span className="muted">{channel.topic}</span>}
+          {channel && me.role !== 'viewer' && <button className="ghost" aria-pressed={Boolean(channel.subscribed)} onClick={() => void act(() => api.call('set_channel_subscription', { channel: channel.id, subscribed: !channel.subscribed }))}>{channel.subscribed ? 'Subscribed' : 'Subscribe'}</button>}
           {current.startsWith('dm:') && !mine(current) && <span className="muted">a conversation between agents, shown to you as an overseer</span>}
         </header>
         <div className="scroll">
