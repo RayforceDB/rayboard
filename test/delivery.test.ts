@@ -153,3 +153,15 @@ test('subscription mutations respect viewer and paused-agent permissions', async
   expect(current.status).toBe('paused');
   await expect(board.call(current, 'set_channel_subscription', { channel: '#general', subscribed: false })).rejects.toMatchObject({ code: 'paused' });
 });
+
+test('subscription state and latest author coexist in channel and dashboard responses', async () => {
+  const reader = await agent('reader');
+  const writer = await agent('writer');
+  await board.call(admin, 'create_channel', { name: 'merged' });
+  await board.call(reader, 'set_channel_subscription', { channel: '#merged', subscribed: true });
+  await board.call(writer, 'post_message', { to: '#merged', body: 'an ordinary message' });
+  const channels = await board.call(reader, 'list_channels', {}) as { name: string; subscribed: boolean; last_author: string; messages: number }[];
+  expect(channels.find(c => c.name === 'merged')).toMatchObject({ subscribed: true, last_author: writer.id, messages: 1 });
+  const dashboard = await board.call(admin, 'dashboard', {}) as { channels: { name: string; subscribed: boolean; last_author: string }[] };
+  expect(dashboard.channels.find(c => c.name === 'merged')).toMatchObject({ subscribed: false, last_author: writer.id });
+});
