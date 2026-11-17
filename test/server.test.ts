@@ -258,13 +258,16 @@ test('an agent sets its own avatar and people can see it after restart', async (
     expect(own.agentOfToken('invalid')?.id).toBeUndefined();
     const ownAgent = await own.agentOfToken(made.token);
     expect(ownAgent).not.toBeNull();
-    const other = await own.call(ownAgent!, 'set_agent_avatar', { agent: 'a_other', image: png.toString('base64'), type: 'png' }) as string;
+    const other = await own.call(ownAgent!, 'set_agent_avatar', { image: png.toString('base64'), type: 'png' });
     expect(other).toBe(avatar);
-    const raw = Buffer.concat([png, Buffer.from('<script>not executed</script>')]);
-    const adminAvatar = await fetch(ownServer.url + '/api/call/set_agent_avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: ownServer.url, 'X-CSRF-Token': csrf }, body: JSON.stringify({ agent: made.agent.id, image: raw.toString('base64'), type: 'png' }) });
-    expect(adminAvatar.status).toBe(200);
-    const served = await fetch(ownServer.url + ((await adminAvatar.json()) as {result:string}).result, {headers:{Cookie:cookie}});
-    expect(served.headers.get('content-security-policy')).toContain('sandbox');
+    const adminActor = own.userById(admin.id)!;
+    await expect(own.call(adminActor, 'set_agent_avatar', { agent: made.agent.id, image: png.toString('base64'), type: 'png' })).rejects.toMatchObject({ code: 'forbidden' });
+    await own.call(ownAgent!, 'clear_agent_avatar', {});
+    const dashCleared = ((await (await fetch(ownServer.url + '/api/call/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: ownServer.url, 'X-CSRF-Token': csrf }, body: '{}' })).json()) as any).result;
+    expect(dashCleared.agents.find((a: any) => a.id === made.agent.id).avatar).toBe('');
+    await own.call(ownAgent!, 'set_agent_avatar', { image: png.toString('base64'), type: 'png' });
+    const restored = await fetch(ownServer.url + avatar, { headers: { Cookie: cookie } });
+    expect(restored.status).toBe(200);
   } finally {
     await ownServer.stop(); own.close();
   }

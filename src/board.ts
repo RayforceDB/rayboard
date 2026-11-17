@@ -69,7 +69,8 @@ export interface Board {
   /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
   clearAvatar(user: string): void;
   avatar(user: string): { bytes: Buffer; type: string; id: string } | null;
-  setAgentAvatar(actor: Actor, user: string, bytes: Buffer, type: string): string;
+  setAgentAvatar(user: string, bytes: Buffer, type: string): string;
+  clearAgentAvatar(user: string): void;
   /** An agent asks to join with the enrollment key. It gets a token at once and can do nothing until a person approves it. */
   register(key: string, p: { name: string; kind?: string; about?: string }, open?: boolean): { agent: Row; token: string };
   /** The first person overseeing the board, or null when there is none yet. */
@@ -787,10 +788,14 @@ export function openBoard(options: BoardOptions): Board {
       },
     },
     set_agent_avatar: {
-      description: 'Set your own PNG/JPEG avatar; a human administrator may assign any agent. Base64, up to 1 MiB.',
-      who: 'any', mutates: true,
-      params: { agent: str('For a human administrator, the agent id; an agent always changes itself.', 40), image: { type: 'string', description: 'Base64 image bytes.', required: true, max: 1_500_000 }, type: { type: 'string', description: 'png or jpg.', required: true, enum: ['png', 'jpg'] } },
-      run(actor, p) { return api.setAgentAvatar(actor, p.agent as string ?? '', Buffer.from(p.image as string, 'base64').subarray(0), p.type as string); },
+      description: 'Set your own PNG/JPEG avatar, up to 1 MiB, passed as base64.',
+      who: 'agent', mutates: true,
+      params: { image: { type: 'string', description: 'Base64 image bytes.', required: true, max: 1_500_000 }, type: { type: 'string', description: 'png or jpg.', required: true, enum: ['png', 'jpg'] } },
+      run(actor, p) { return api.setAgentAvatar(actor.id, Buffer.from(p.image as string, 'base64').subarray(0), p.type as string); },
+    },
+    clear_agent_avatar: {
+      description: 'Remove your own avatar and return to the default identity image.', who: 'agent', mutates: true, params: {},
+      run(actor) { api.clearAgentAvatar(actor.id); return { ok: true }; },
     },
     remove_avatar: {
       description: 'Remove your own profile image.', who: 'user', mutates: true, params: {},
@@ -1034,9 +1039,8 @@ export function openBoard(options: BoardOptions): Board {
       seen.set(row.id as string, Date.now());
       return actorOfAgent(row);
     },
-    setAgentAvatar(actor, user, bytes, type) {
-      const target = actor.kind === 'agent' ? actor.id : actor.role === 'viewer' ? '' : user;
-      if (actor.kind !== 'agent' && !isAdmin(actor)) bad('forbidden', 'only an administrator may assign another agent an avatar');
+    setAgentAvatar(user, bytes, type) {
+      const target = user;
       const row = store.get('agents', target) ?? bad('not_found', 'no such agent');
       const mime = type === 'png' ? 'image/png' : type === 'jpg' ? 'image/jpeg' : '';
       const signature = type === 'png' ? Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : type === 'jpg' && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -1046,10 +1050,16 @@ export function openBoard(options: BoardOptions): Board {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       if (!existsSync(path)) writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
       const next = { ...row, avatar: id, avatar_type: type };
-      commit('agent.avatar_changed', actor.id, target, row.name + ' changed their avatar', { agents: [next] });
+      commit('agent.avatar_changed', user, target, row.name + ' changed their avatar', { agents: [next] });
       const old = row.avatar as string;
       if (old && old !== id && store.all('users').every((u) => u.avatar !== old) && store.all('agents').every((a) => a.avatar !== old)) unlinkSync(join(dirname(path), old));
       return '/api/avatars/' + target + '/' + id;
+    },
+    clearAgentAvatar(user) {
+      const row = store.get('agents', user) ?? bad('not_found', 'no such agent');
+      commit('agent.avatar_cleared', user, user, row.name + ' removed their avatar', { agents: [{ ...row, avatar: '', avatar_type: '' }] });
+      const old = row.avatar as string;
+      if (old && store.all('users').every((u) => u.avatar !== old) && store.all('agents').every((a) => a.avatar !== old)) unlinkSync(join(dirname(options.base), 'avatars', old));
     },
     avatar(user) {
       const row = store.get('users', user) ?? store.get('agents', user);
