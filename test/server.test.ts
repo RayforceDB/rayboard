@@ -157,6 +157,17 @@ test('a viewer cannot change a profile through a falsely read-only action', asyn
   expect(dash.people.find((p: any) => p.id === viewer.id).about ?? '').toBe('');
 });
 
+test('an allowed avatar fits the HTTP request limit, unlike an oversized one', async () => {
+  const png = Buffer.alloc(322900, 0);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png);
+  const r = await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png', 'Content-Type': 'application/octet-stream' }, body: png });
+  expect(r.status).toBe(200);
+  await board.call(board.userById(board.store.all('users').find((u) => u.name === 'anton')!.id as string)!, 'remove_avatar', {});
+  const over = Buffer.alloc(1024 * 1024 + 1, 0);
+  const refused = await fetch(server.url + '/api/avatar', { method: 'POST', headers: { ...asUser(), 'X-Avatar-Type': 'png', 'Content-Type': 'application/octet-stream' }, body: over });
+  expect(refused.status).toBe(413);
+});
+
 test('a person edits their profile and a bounded avatar stays private', async () => {
   const about = 'Works on Rayforce and likes precise tools.';
   const profile = await post('/api/call/set_profile', { about }, asUser());
@@ -184,7 +195,8 @@ test('a person edits their profile and a bounded avatar stays private', async ()
 
 test('what is not JSON, or too much, is refused', async () => {
   expect((await fetch(`${server.url}/api/call/whoami`, { method: 'POST', headers: asAgent(), body: 'x' })).status).toBe(400);
-  expect((await post('/api/call/whoami', 'x'.repeat(300_000), asAgent())).status).toBe(413);
+  const tooLarge = await post('/api/call/whoami', 'x'.repeat(300_000), asAgent());
+  expect(tooLarge.status).toBe(413);
   expect((await fetch(`${server.url}/api/nothing`)).status).toBe(404);
   expect((await fetch(`${server.url}/../../etc/passwd`)).status).toBe(503);
 });

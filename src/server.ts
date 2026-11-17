@@ -95,6 +95,7 @@ export function startServer(o: ServerOptions): Server {
   const refuse = (code: ErrorCode | 'rate_limited' | 'too_large' | 'internal', message: string, status?: number, extra: Record<string, string> = {}): Response =>
     json(status ?? STATUS[code as ErrorCode] ?? 500, { ok: false, error: { code, message } }, extra);
   const failed = (err: unknown): Response => {
+    if (err instanceof Error && (err.name === 'BodyTooLargeError' || /body.*large|request.*large/i.test(err.message))) return refuse('too_large', 'the request is too large', 413);
     if (err instanceof BoardError) return refuse(err.code, err.message);
     // What broke is for the operator; the caller learns only that something did.
     o.log(`error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
@@ -167,7 +168,7 @@ export function startServer(o: ServerOptions): Server {
     hostname: o.host,
     port: o.port,
     ...(o.tls ? { tls: { cert: Bun.file(o.tls.cert), key: Bun.file(o.tls.key) } } : {}),
-    maxRequestBodySize: BODY_MAX,
+    maxRequestBodySize: AVATAR_MAX,
     // An inbox may wait 50 seconds for something to arrive.
     idleTimeout: 90,
     async fetch(req, srv) {
