@@ -60,6 +60,16 @@ try {
   await page.locator('.shell > nav button').filter({ hasText: 'Board' }).click();
   await page.locator('.card-task').filter({ hasText: 'Navigation fixture' }).click();
   await expect(page.getByRole('complementary', { name: 'Task T-4', exact: true })).toBeVisible();
+  const comment=page.getByRole('combobox');
+  await comment.fill('show #general');
+  await expect(page.getByRole('listbox', { name: 'Choose a channel' })).toBeVisible();
+  await expect(page.getByRole('option', { name: '#general' })).toHaveCount(1);
+  await comment.press('Enter');
+  await expect(comment).toHaveValue('show #general ');
+  await comment.fill('@all');
+  await expect(page.getByRole('option', { name: '@all' })).toHaveCount(1);
+  await comment.press('Enter');
+  await expect(comment).toHaveValue('@all ');
   const historyLength = await page.evaluate(() => history.length);
   await page.locator('.card-task').filter({ hasText: 'Navigation fixture' }).click();
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
