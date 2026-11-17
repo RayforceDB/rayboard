@@ -32,6 +32,15 @@
   --info-soft: #ebf2fe;
   --violet: #7c4ddb;
   --violet-soft: #f2edfd;
+  /* One colour per task status; each text colour keeps at least 4.5:1 on its own soft ground and on white. */
+  --st-open: #2a5fc4;        --st-open-soft: #ebf2fe;
+  --st-progress: #b04205;    --st-progress-soft: #fff0e5;
+  --st-waiting: #946003;     --st-waiting-soft: #fff6df;
+  --st-blocked: #c62f2f;     --st-blocked-soft: #fdecec;
+  --st-review: #6d3fcc;      --st-review-soft: #f2edfd;
+  --st-changes: #b02a66;     --st-changes-soft: #fcebf3;
+  --st-done: #147538;        --st-done-soft: #e8f6ee;
+  --st-cancelled: #6f6a65;   --st-cancelled-soft: #f3efeb;
   --r: 10px;
   --r-sm: 7px;
   --shadow: 0 1px 2px rgb(40 30 20 / 0.05), 0 1px 1px rgb(40 30 20 / 0.03);
@@ -169,14 +178,18 @@ main > .head h2 { font-size: 28px; letter-spacing: -0.02em; }
 .list li .grow.wraps { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* status, priority, names */
-.badge { font-size: 12px; font-weight: 500; white-space: nowrap; --c: var(--muted); color: var(--c); }
-.s-open, .s-pending { --c: var(--info); --soft: var(--info-soft); }
-.s-in_progress { --c: var(--accent-text); --soft: var(--accent-soft); }
-.s-active, .s-done, .s-approved { --c: var(--good); --soft: var(--good-soft); }
-.s-waiting, .s-changes_requested, .s-paused { --c: #b07004; --soft: var(--warn-soft); }
-.s-in_review { --c: var(--violet); --soft: var(--violet-soft); }
-.s-blocked, .s-cancelled, .s-revoked { --c: var(--bad); --soft: var(--bad-soft); }
-.s-withdrawn { --c: var(--muted); --soft: var(--raised); }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; line-height: 18px; white-space: nowrap; padding: 1px 8px; border-radius: 99px; color: var(--c, var(--muted)); background: var(--soft, var(--raised)); }
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.s-open, .s-pending { --c: var(--st-open); --soft: var(--st-open-soft); }
+.s-in_progress { --c: var(--st-progress); --soft: var(--st-progress-soft); }
+.s-waiting, .s-paused { --c: var(--st-waiting); --soft: var(--st-waiting-soft); }
+.s-blocked, .s-revoked { --c: var(--st-blocked); --soft: var(--st-blocked-soft); }
+.s-in_review { --c: var(--st-review); --soft: var(--st-review-soft); }
+.s-changes_requested { --c: var(--st-changes); --soft: var(--st-changes-soft); }
+.s-done, .s-active, .s-approved { --c: var(--st-done); --soft: var(--st-done-soft); }
+.s-cancelled, .s-withdrawn { --c: var(--st-cancelled); --soft: var(--st-cancelled-soft); }
+/* A lane names its main status with the same colour as its cards. */
+.lane-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
 .pill { display: inline-flex; align-items: center; gap: 7px; justify-self: start; width: fit-content; background: var(--soft, var(--raised)); color: var(--c, var(--muted)); border-radius: var(--r-sm); padding: 4px 12px; font-weight: 600; font-size: 14px; }
 .who { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-weight: 500; }
 .who.none { color: var(--faint); font-weight: 400; }
@@ -199,14 +212,19 @@ main:has(> .board-view) { padding: 0; }
 .lane h3, .groups h3 { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; padding: 0 4px 2px; min-height: 30px; }
 .lane h3 button { margin-left: auto; }
 .count-pill { background: var(--raised); border: 1px solid var(--line); color: var(--muted); border-radius: 99px; font-size: 12px; font-weight: 600; min-width: 24px; height: 22px; padding: 0 7px; display: inline-grid; place-items: center; letter-spacing: 0; }
-.card-task { display: grid; justify-content: stretch; gap: 10px; text-align: left; white-space: normal; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); font-weight: 400; transition: box-shadow 0.12s; }
+.card-task { position: relative; overflow: hidden; display: grid; justify-content: stretch; gap: 10px; text-align: left; white-space: normal; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); font-weight: 400; transition: box-shadow 0.12s; }
 .card-task[draggable="true"] { cursor: grab; }
+/* The status edge sits inside the border, so selection (which changes the border) never hides it. */
+.card-task::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c, transparent); }
 .card-task.dragging { opacity: .45; cursor: grabbing; }
 .lane.drop-target { border: 2px dashed var(--select); background: var(--select-soft); }
 .lane.drop-target .card-task { pointer-events: none; }
 .card-task.on, .card-task.on:hover:not(:disabled) { border: 2px solid var(--select); padding: 13px; background: var(--select-soft); box-shadow: 0 0 0 3px var(--select-soft); }
 .card-task:hover:not(:disabled) { background: var(--panel); border-color: var(--line-strong); box-shadow: var(--shadow-lift); }
-.card-task code { font-family: inherit; font-size: 13px; color: var(--muted); }
+.card-task code { font-family: inherit; font-size: 13px; color: var(--muted); white-space: nowrap; }
+/* In a narrow lane the priority moves under the id and status rather than being cut off. */
+.card-task > .row:first-child { flex-wrap: wrap; row-gap: 4px; }
+.card-task .prio { white-space: nowrap; }
 .card-task b { font-size: 16px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag { display: inline-flex; align-items: center; gap: 6px; background: var(--raised); border: 1px solid var(--line); border-radius: 99px; padding: 3px 11px; font-size: 13px; color: #45413d; }
