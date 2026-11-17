@@ -32,3 +32,21 @@ test('mention picker filters, chooses with the keyboard, and replaces only the a
   expect(tree!.root.findAllByProps({ role: 'option' }).map((o) => o.props.id)).toHaveLength(3);
   await act(async () => { tree!.unmount(); });
 });
+
+test('@ lists only active identities, while # lists channels and preserves the marker', async () => {
+  const local = { ...ctx, board: { ...board, channels: [{ id: 'c_general', name: 'general' }, { id: 'c_private', name: 'private' }] } } as unknown as Ctx;
+  let value = '';
+  let tree: ReturnType<typeof create>;
+  await act(async () => { tree = create(<BoardContext.Provider value={local}><MentionInput value={value} onChange={(v) => { value = v; }} onSend={() => {}} placeholder="message" /></BoardContext.Provider>); });
+  const input = tree!.root.findByType('textarea');
+  await act(async () => { input.props.onChange({ target: { value: 'see #g', selectionStart: 7 } }); });
+  await act(async()=>{tree!.update(<BoardContext.Provider value={local}><MentionInput value={'see #g'} onChange={(v) => { value = v; }} onSend={() => {}} placeholder="message" /></BoardContext.Provider>);});
+  expect(tree!.root.findAllByProps({ role: 'option' }).map((o) => o.findAllByType('span')[1]!.children.join(''))).toEqual(['#general']);
+  await act(async () => { input.props.onKeyDown({ key: 'Enter', preventDefault() {} }); });
+  expect(value).toBe('see #general ');
+  await act(async () => { input.props.onChange({ target: { value: '@', selectionStart: 1 } }); });
+  await act(async()=>{tree!.update(<BoardContext.Provider value={local}><MentionInput value={'@'} onChange={(v) => { value = v; }} onSend={() => {}} placeholder="message" /></BoardContext.Provider>);});
+  const labels = tree!.root.findAllByProps({ role: 'option' }).map((o) => o.findAllByType('span').at(-1)!.children.join(''));
+  expect(labels).toContain('@all'); expect(labels).toContain('@mica'); expect(labels).not.toContain('#general'); expect(labels).not.toContain('@old');
+  await act(async () => { tree!.unmount(); });
+});

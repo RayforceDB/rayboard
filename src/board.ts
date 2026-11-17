@@ -299,7 +299,16 @@ export function openBoard(options: BoardOptions): Board {
   function post(actor: Actor, to: string, body: string): Row {
     const where = place(actor, to);
     const dir = directory();
-    const mentioned = [...new Set([...body.matchAll(/(?:^|[^\w@])@([a-z0-9][a-z0-9_-]{1,31})/gi)].map((m) => dir.byName.get(m[1]!.toLowerCase())?.id).filter((id): id is string => id !== undefined))];
+    const names = [...body.matchAll(/(?:^|[^\w@])@([a-z0-9][a-z0-9_-]{1,31})/gi)].map((m) => m[1]!.toLowerCase());
+    const mentioned = [...new Set(names.flatMap((name) => {
+      if (name === 'all') {
+        if (where.closed === true) return where.party;
+        const eligible = where.kind === 'task' ? store.all('tasks').filter((t) => t.id === where.chan).flatMap(parties) : [...dir.byId.keys()];
+        return eligible.filter((id) => id !== actor.id && dir.byId.get(id)?.status === 'active');
+      }
+      const who = dir.byName.get(name);
+      return who?.status === 'active' ? [who.id] : [];
+    }))];
     const message: Row = { id: `m_${seq + 1}`, seq: seq + 1, ts: now().toISOString(), chan: where.chan, kind: where.kind, author: actor.id, body, mentions: mentioned.join(' ') };
     const type = where.kind === 'dm' ? 'dm' : where.kind === 'task' ? 'comment' : 'mention';
     commit(

@@ -104,7 +104,7 @@ test('messages reach channels, direct conversations and mentions, and a direct c
   await board.call(a, 'post_message', { to: '#general', body: 'hello @bb, and (exit 1) "quoted"' });
   await board.call(a, 'post_message', { to: '@bb', body: 'between us' });
   expect((await inbox(b)).map((n) => n.type)).toEqual(['mention', 'dm']);
-  expect(await inbox(c)).toEqual([]);
+  expect((await inbox(c)).every((n) => n.type !== "dm")).toBe(true);
   const seenByB = (await board.call(b, 'read_messages', { from: '@aa' })) as { body: string }[];
   expect(seenByB.map((m) => m.body)).toEqual(['between us']);
   expect(await board.call(c, 'read_messages', { from: '@aa' })).toEqual([]);
@@ -293,4 +293,24 @@ test('a board move keeps revision, permissions and independent review boundaries
   await expect(board.call(admin, 'move_task', { task: t.id, status: 'in_progress', rev: Number(updated.rev) + 1 })).rejects.toMatchObject({ code: 'conflict' });
   await board.call(admin, 'review_task', { task: t.id, verdict: 'approve', rev: Number(updated.rev) + 1 });
   expect(board.store.get('tasks', t.id)?.status).toBe('done');
+});
+
+test('@all expands only to eligible active participants, never direct-message outsiders', async () => {
+  const a = (await agent('author')).actor;
+  const b = (await agent('reader')).actor;
+  const c = (await agent('outsider')).actor;
+  await board.call(a, 'create_channel', { name: 'all-hands' });
+  const message = await board.call(a, 'post_message', { to: '#all-hands', body: 'Please see @all; #all-hands is a channel' }) as any;
+  expect(message.mentions.split(' ')).toContain(b.id);
+  expect(message.mentions.split(' ')).toContain(admin.id);
+  expect(message.mentions.split(' ')).not.toContain(a.id);
+  expect((await inbox(b)).some((n) => n.subject === message.chan)).toBe(true);
+  expect((await inbox(admin)).some((n) => n.subject === message.chan)).toBe(true);
+  await board.call(admin, 'pause_agent', { agent: c.id, reason: 'offline test' });
+  const second = await board.call(a, 'post_message', { to: '#all-hands', body: '@all again' }) as any;
+  expect(second.mentions.split(' ')).not.toContain(c.id);
+  const dm = await board.call(a, 'post_message', { to: '@reader', body: '@all stays between us with no third party' }) as any;
+  expect(dm.mentions.split(' ')).toEqual([b.id]);
+  expect((await inbox(c)).every((n) => n.type !== "dm")).toBe(true);
+  expect((await inbox(c)).every((n) => n.type !== "dm")).toBe(true);
 });
