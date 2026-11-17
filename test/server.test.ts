@@ -109,6 +109,23 @@ test('an agent joins with the enrollment key and waits for approval', async () =
 });
 
 
+test('an administrator can free an unused person name without losing its identity', async () => {
+  const person = await board.createUser('morrow', 'a sufficiently long password', 'member');
+  const admin = board.userById((board.people().includes('anton') ? board.store.all('users').find((u: any) => u.name === 'anton')!.id as string : ''))!;
+  const renamed = await board.call(admin, 'rename_person', { user: person.id, name: 'morrow-ui' }) as any;
+  expect(renamed.id).toBe(person.id);
+  expect(renamed.name).toBe('morrow-ui');
+  await expect(board.call(admin, 'rename_person', { user: person.id, name: 'anton' })).rejects.toMatchObject({ code: 'conflict' });
+  const enrollment = await post('/api/call/new_enrollment_key', {}, asUser());
+  const key = ((await enrollment.json()) as { result: { key: string } }).result.key;
+  const joined = await post('/api/register', { key, name: 'morrow' }, { Origin: server.url });
+  expect(joined.status).toBe(200);
+  const registration = ((await joined.json()) as { result: { agent: { id: string; status: string }; token: string } }).result;
+  expect(registration.agent.status).toBe('pending');
+  await board.call(admin, 'approve_agent', { agent: registration.agent.id });
+  expect(board.agentOfToken(registration.token)?.status).toBe('active');
+});
+
 test('a person accepts an invitation once, with a role enforced on existing sessions', async () => {
   const invite = await post('/api/call/invite_person', { role: 'member' }, asUser());
   expect(invite.status).toBe(200);

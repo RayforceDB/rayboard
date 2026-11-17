@@ -853,6 +853,23 @@ export function openBoard(options: BoardOptions): Board {
       who: 'user', mutates: true, admin: true, params: { agent: str('The agent.', 40, true), usd: { type: 'number', description: 'US dollars a month; 0 for no limit.', required: true, min: 0, max: 1_000_000 } },
       run: (actor, p) => setAgent(actor, p.agent as string, { budget: p.usd as number }, 'agent.budget', (n) => `${actor.name} set the budget of ${n} to ${usd(p.usd as number)} a month`, ['pending', 'active', 'paused']),
     },
+    rename_person: {
+      description: 'Rename a person, keeping their id, history and login secret. Useful to free a name for an agent.',
+      who: 'user', mutates: true, admin: true,
+      params: { user: str('The person.', 40, true), name: str('The new unique name.', 32, true) },
+      run(actor, p) {
+        const target = someone(p.user as string, 'person');
+        if (target.kind !== 'user') bad('not_found', `${target.name} is an agent, not a person`);
+        const name = (p.name as string).toLowerCase();
+        if (!NAME.test(name)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _');
+        const found = directory().byName.get(name);
+        if (found !== undefined && found.id !== target.id) bad('conflict', `the name ${name} is taken`);
+        const row = store.get('users', target.id)!;
+        const next = { ...row, name };
+        commit('person.renamed', actor.id, target.id, `${target.name} was renamed ${name}`, { users: [next] });
+        return userView(next);
+      },
+    },
     invite_person: {
       description: 'Invite a person with a one-time link, valid for 48 hours. New people are members unless another role is chosen.',
       who: 'user', mutates: true, admin: true, secret: true,
