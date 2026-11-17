@@ -20,7 +20,9 @@ interface Shape {
 }
 
 export const SCHEMA = {
-  users: { keyed: true, columns: { id: 'str', name: 'str', pass: 'str', status: 'sym', created: 'ts' } },
+  users: { keyed: true, columns: { id: 'str', name: 'str', pass: 'str', status: 'sym', role: 'sym', created: 'ts' } },
+  /** Only hashes of one-time human invitations are stored; an expired timestamp means used, revoked or expired. */
+  invites: { keyed: true, columns: { id: 'str', token: 'str', role: 'sym', created: 'ts', expires: 'ts', by: 'str' } },
   agents: {
     keyed: true,
     columns: { id: 'str', name: 'str', kind: 'str', about: 'str', status: 'sym', reason: 'str', token: 'str', budget: 'f64', created: 'ts', by: 'str' },

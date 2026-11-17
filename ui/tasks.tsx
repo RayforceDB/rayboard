@@ -50,7 +50,7 @@ export function Tasks({ item }: { item: string }) {
             <button className={layout === 'list' ? 'on' : ''} onClick={() => pick('list')}><Icon name="list" />List</button>
           </div>
           <label className="search"><Icon name="search" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…" aria-label="Search tasks" /></label>
-          <button className="primary" onClick={() => setCreating(true)}><Icon name="plus" />New task</button>
+          {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(true)}><Icon name="plus" />New task</button>}
         </header>
         <AgentStrip />
         {cancelled > 0 && <label className="check cancelled-toggle"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show {cancelled} cancelled</label>}
@@ -59,7 +59,7 @@ export function Tasks({ item }: { item: string }) {
           <div className="kanban">
             {lanes.map((lane) => (
               <section key={lane.key} className="lane">
-                <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
+                <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
                 {lane.tasks.map((t) => (
                   <button key={t.id} className={`card-task ${t.id === item ? 'on' : ''}`} onClick={() => open('tasks', t.id)}>
                     <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} /></span>

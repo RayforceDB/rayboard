@@ -195,3 +195,49 @@ test('the dashboard counts each task thread, and activity can be read for one ta
   expect(events[0]!.type).toBe('task.claimed');
   await fails(board.call(b, 'activity', { subject: 'T-2' }), 'not_found');
 });
+
+test('people join by a one-time invitation, with roles and privacy that survive a restart', async () => {
+  const made = (await board.call(admin, 'invite_person', {})) as { key: string; role: string; expires: string };
+  expect(made.role).toBe('member');
+  expect(made.key).toStartWith('rbi_');
+  expect(JSON.stringify(await board.call(admin, 'dashboard', {}))).not.toContain(made.key);
+  const member = await board.acceptInvite(made.key, 'colleague', 'a private passphrase');
+  expect(member).toMatchObject({ kind: 'user', role: 'member' });
+  expect(await board.login('colleague', 'a private passphrase')).toMatchObject({ role: 'member' });
+  await fails(board.acceptInvite(made.key, 'second', 'a private passphrase'), 'unauthorized');
+  await fails(board.call(member, 'create_agent', { name: 'not-allowed' }), 'forbidden');
+  await fails(board.call(member, 'invite_person', {}), 'forbidden');
+  await fails(board.call(member, 'set_role', { user: 'colleague', role: 'admin' }), 'forbidden');
+  await board.call(member, 'create_task', { title: 'Shared work', outcome: 'done', review: 'optional' });
+  await board.call(admin, 'create_task', { title: 'Private work', outcome: 'hidden', private: true });
+  await fails(board.call(member, 'get_task', { task: 'T-2' }), 'not_found');
+  expect(((await board.call(member, 'dashboard', {})) as { tasks: { id: string }[] }).tasks.map((t) => t.id)).not.toContain('T-2');
+  expect(((await board.call(member, 'list_tasks', { status: 'all' })) as { id: string }[]).map((t) => t.id)).not.toContain('T-2');
+  await fails(board.call(member, 'read_messages', { from: `dm:${admin.id}:u_somebody` }), 'forbidden');
+
+  const viewerInvite = (await board.call(admin, 'invite_person', { role: 'viewer' })) as { key: string };
+  const viewer = await board.acceptInvite(viewerInvite.key, 'observer', 'another passphrase');
+  await fails(board.call(viewer, 'post_message', { to: 'T-1', body: 'not allowed' }), 'forbidden');
+  await fails(board.call(viewer, 'complete_task', { task: 'T-1', result: 'not allowed' }), 'forbidden');
+  expect(await board.call(viewer, 'get_task', { task: 'T-1' })).toBeTruthy();
+  await fails(board.call(admin, 'set_role', { user: 'anton', role: 'viewer' }), 'conflict');
+
+  const [a, b] = (await Promise.all([board.call(admin, 'invite_person', {}), board.call(admin, 'invite_person', {})])) as { key: string }[];
+  const parallel = await Promise.allSettled([
+    board.acceptInvite(a.key, 'parallel-a', 'a private passphrase'),
+    board.acceptInvite(a.key, 'parallel-b', 'a private passphrase'),
+  ]);
+  expect(parallel.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  expect(parallel.filter((r) => r.status === 'rejected')).toHaveLength(1);
+  const unused = (await board.call(admin, 'revoke_invite', { invite: 'invite:' + (await import('node:crypto')).createHash('sha256').update(b.key).digest('hex') })) as { ok: boolean };
+  expect(unused.ok).toBe(true);
+  await fails(board.acceptInvite(b.key, 'revoked', 'a private passphrase'), 'unauthorized');
+
+  const before = await board.call(admin, 'dashboard', {});
+  board.close(); board = await open();
+  expect(await board.login('colleague', 'a private passphrase')).toMatchObject({ role: 'member' });
+  expect(await board.login('observer', 'another passphrase')).toMatchObject({ role: 'viewer' });
+  expect(await board.login('anton', 'correct horse battery')).toMatchObject({ role: 'admin' });
+  expect({ ...((await board.call(admin, 'dashboard', {})) as object), now: 0 }).toEqual({ ...(before as object), now: 0 });
+  await fails(board.call(board.userById(member.id)!, 'create_agent', { name: 'still-not-allowed' }), 'forbidden');
+});

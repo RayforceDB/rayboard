@@ -24,7 +24,7 @@ export function Chat({ item }: { item: string }) {
     end.current?.scrollIntoView({ block: 'end' });
   }, [messages.length, current]);
 
-  const canWrite = channel !== undefined || mine(current) || current.startsWith('@');
+  const canWrite = me.role !== 'viewer' && (channel !== undefined || mine(current) || current.startsWith('@'));
   const send = async (): Promise<void> => {
     if (text.trim() === '') return;
     const to = current.startsWith('dm:') ? `@${dmLabel(current)}` : current;
@@ -37,7 +37,7 @@ export function Chat({ item }: { item: string }) {
   return (
     <div className="chat">
       <aside>
-        <h3>Channels <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button></h3>
+        <h3>Channels {me.role !== 'viewer' && <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button>}</h3>
         {board.channels.length === 0 && <p className="muted pad">No channels yet.</p>}
         {board.channels.map((c) => <button key={c.id} className={c.id === current ? 'on' : ''} onClick={() => open('chat', c.id)}><span className="grow"># {c.name}</span><span className="muted">{c.messages || ''}</span></button>)}
         <h3>Direct</h3>

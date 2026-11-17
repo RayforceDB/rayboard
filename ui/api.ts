@@ -13,6 +13,7 @@ export interface Snapshot {
   /** How many comments each task's thread holds, by task id in `chan`. */
   threads?: Row[];
   enrollment: boolean;
+  invites?: Row[];
   seq: number;
 }
 
@@ -34,6 +35,7 @@ async function send(path: string, body?: unknown): Promise<any> {
 export const api = {
   session: (): Promise<{ setup: boolean; user: Row | null; unsafe?: boolean }> => send('/api/session'),
   setup: (code: string, name: string, password: string) => send('/api/setup', { code, name, password }),
+  join: (key: string, name: string, password: string) => send('/api/join', { key, name, password }),
   login: (name: string, password: string) => send('/api/login', { name, password }),
   logout: () => send('/api/logout', {}),
   password: (current: string, next: string) => send('/api/password', { current, next }),

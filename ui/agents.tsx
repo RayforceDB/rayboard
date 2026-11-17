@@ -5,7 +5,8 @@ import { Avatar, Badge, Copy, Empty, Field, Form, Modal, Secret, agentState, use
 const origin = (): string => location.origin;
 
 export function Agents() {
-  const { board, act } = useCtx();
+  const { board, act, me } = useCtx();
+  const admin = me.role === 'admin';
   const [adding, setAdding] = useState(false);
   const [token, setToken] = useState<{ name: string; token: string } | null>(null);
   const [key, setKey] = useState('');
@@ -18,7 +19,7 @@ export function Agents() {
       <header className="head">
         <h2>Agents</h2>
         <div className="grow" />
-        <button className="primary" onClick={() => setAdding(true)}>Add agent</button>
+        {admin && <button className="primary" onClick={() => setAdding(true)}>Add agent</button>}
       </header>
       {agents.length === 0 && <Empty>No agents yet. Add one and give it its token, or hand out an enrollment key and approve whoever asks to join.</Empty>}
       <div className="cards">
@@ -39,12 +40,12 @@ export function Agents() {
                 <span>{usd(a.spent)}{a.budget > 0 ? ` of ${usd(a.budget)}` : ' · no limit'}</span>
               </div>
               <div className="row wrap actions">
-                {a.status === 'pending' && <button className="primary" onClick={run('approve_agent', a)}>Approve</button>}
-                {a.status === 'active' && <button onClick={run('pause_agent', a)}>Pause</button>}
-                {a.status === 'paused' && <button className="primary" onClick={run('resume_agent', a)}>Resume</button>}
-                {a.status !== 'revoked' && <button onClick={() => setBudgetOf(a)}>Budget</button>}
-                {a.status !== 'revoked' && <button onClick={() => setConfirm({ agent: a, action: 'rotate_token' })}>New token</button>}
-                {a.status !== 'revoked' && <button className="danger" onClick={() => setConfirm({ agent: a, action: 'revoke_agent' })}>{a.status === 'pending' ? 'Reject' : 'Revoke'}</button>}
+                {admin && a.status === 'pending' && <button className="primary" onClick={run('approve_agent', a)}>Approve</button>}
+                {admin && a.status === 'active' && <button onClick={run('pause_agent', a)}>Pause</button>}
+                {admin && a.status === 'paused' && <button className="primary" onClick={run('resume_agent', a)}>Resume</button>}
+                {admin && a.status !== 'revoked' && <button onClick={() => setBudgetOf(a)}>Budget</button>}
+                {admin && a.status !== 'revoked' && <button onClick={() => setConfirm({ agent: a, action: 'rotate_token' })}>New token</button>}
+                {admin && a.status !== 'revoked' && <button className="danger" onClick={() => setConfirm({ agent: a, action: 'revoke_agent' })}>{a.status === 'pending' ? 'Reject' : 'Revoke'}</button>}
                 <span className="grow" />
                 <time>joined {ago(a.created, Date.parse(board.now))}</time>
               </div>
@@ -60,8 +61,8 @@ export function Agents() {
           Enrollment is <b>{board.enrollment ? 'open' : 'closed'}</b>.
         </p>
         <div className="row">
-          <button onClick={() => void act(async () => setKey((await api.call<{ key: string }>('new_enrollment_key')).key))}>{board.enrollment ? 'Replace the key' : 'Make a key'}</button>
-          {board.enrollment && <button onClick={() => void act(() => api.call('disable_enrollment'))}>Close enrollment</button>}
+          {admin && <button onClick={() => void act(async () => setKey((await api.call<{ key: string }>('new_enrollment_key')).key))}>{board.enrollment ? 'Replace the key' : 'Make a key'}</button>}
+          {admin && board.enrollment && <button onClick={() => void act(() => api.call('disable_enrollment'))}>Close enrollment</button>}
         </div>
       </section>
 

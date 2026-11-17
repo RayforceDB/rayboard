@@ -107,6 +107,28 @@ test('an agent joins with the enrollment key and waits for approval', async () =
   expect((await post('/api/call/post_message', { to: '@dev', body: 'hi' }, mine)).status).toBe(200);
 });
 
+
+test('a person accepts an invitation once, with a role enforced on existing sessions', async () => {
+  const invite = await post('/api/call/invite_person', { role: 'member' }, asUser());
+  expect(invite.status).toBe(200);
+  const { result } = (await invite.json()) as { result: { key: string } };
+  expect((await post('/api/join', { key: result.key, name: 'member', password: 'a private passphrase' })).status).toBe(403);
+  expect((await post('/api/join', { key: 'rbi_wrong', name: 'member', password: 'a private passphrase' }, { Origin: server.url })).status).toBe(401);
+  const joined = await post('/api/join', { key: result.key, name: 'member', password: 'a private passphrase' }, { Origin: server.url });
+  expect(joined.status).toBe(200);
+  const answer = (await joined.json()) as { user: { id: string; role: string }; csrf: string };
+  expect(answer.user.role).toBe('member');
+  expect((await post('/api/join', { key: result.key, name: 'other', password: 'a private passphrase' }, { Origin: server.url })).status).toBe(401);
+  const memberCookie = joined.headers.get('set-cookie')!.split(';')[0]!;
+  const asMember = { Cookie: memberCookie, Origin: server.url, 'X-CSRF-Token': answer.csrf };
+  expect((await post('/api/call/create_agent', { name: 'unauthorized' }, asMember)).status).toBe(403);
+  expect((await post('/api/call/invite_person', {}, asMember)).status).toBe(403);
+  expect((await post('/api/call/create_task', { title: 'Member work', outcome: 'allowed', review: 'optional' }, asMember)).status).toBe(200);
+  // A role change takes effect on an existing session without signing in again.
+  expect((await post('/api/call/set_role', { user: answer.user.id, role: 'viewer' }, asUser())).status).toBe(200);
+  expect((await post('/api/call/post_message', { to: '#general', body: 'not allowed' }, asMember)).status).toBe(403);
+  expect((await post('/api/call/get_task', { task: 'T-1' }, asMember)).status).toBe(200);
+});
 test('what is not JSON, or too much, is refused', async () => {
   expect((await fetch(`${server.url}/api/call/whoami`, { method: 'POST', headers: asAgent(), body: 'x' })).status).toBe(400);
   expect((await post('/api/call/whoami', 'x'.repeat(300_000), asAgent())).status).toBe(413);

@@ -2,6 +2,7 @@ import { Component, StrictMode, useCallback, useEffect, useMemo, useState, type 
 import { createRoot } from 'react-dom/client';
 import { ago, api, useBoard, usd, type Row } from './api';
 import { Agents } from './agents';
+import { People } from './people';
 import { Chat } from './chat';
 import { Icon, type IconName } from './icons';
 import { AgentStrip, Avatar, Badge, BoardContext, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
@@ -15,6 +16,7 @@ const NAV: [view: string, label: string, icon: IconName][] = [
   ['reviews', 'Reviews', 'review'],
   ['chat', 'Discussions', 'chat'],
   ['agents', 'Agents', 'agents'],
+  ['people', 'People', 'user'],
   ['costs', 'Costs', 'costs'],
   ['activity', 'Activity', 'activity'],
 ];
@@ -30,30 +32,37 @@ function App() {
 }
 
 function SignIn({ setup, onDone }: { setup: boolean; onDone: () => void }) {
+  const [joining, setJoining] = useState(() => location.hash.startsWith('#invite=') || new URLSearchParams(location.search).has('invite'));
   const [code, setCode] = useState('');
+  useEffect(() => {
+    if (!joining) return;
+    const frame = window.location.hash.slice(1);
+    if (frame.startsWith('invite=')) setCode(decodeURIComponent(frame.slice(7)));
+  }, [joining]);
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const submit = (): Promise<void> => (setup ? api.setup(code, name, password) : api.login(name, password)).then(onDone, (e: Error) => setError(e.message));
+  const submit = (): Promise<void> => (joining ? api.join(code, name, password) : setup ? api.setup(code, name, password) : api.login(name, password)).then(() => { if (joining) history.replaceState(null, '', location.pathname); onDone(); }, (e: Error) => setError(e.message));
   return (
     <main className="signin">
       <div className="card">
         <Brand />
-        <p className="muted">{setup ? 'Nobody oversees this board yet. Create the first account with the setup code printed on the server\'s console.' : 'Sign in to oversee the board.'}</p>
-        <Form onSubmit={submit} submit={setup ? 'Create account' : 'Sign in'}>
-          {setup && (
-            <Field label="Setup code">
-              <input value={code} onChange={(e) => setCode(e.target.value)} autoFocus required autoComplete="off" spellCheck={false} />
+        <p className="muted">{joining ? 'You have been invited. Choose your login and password; the invitation is single-use and is not sent in HTTP logs.' : setup ? 'Nobody oversees this board yet. Create the first account with the setup code printed on the server\'s console.' : 'Sign in to take part in the board.'}</p>
+        <Form onSubmit={submit} submit={joining ? 'Accept invitation' : setup ? 'Create account' : 'Sign in'}>
+          {(setup || joining) && (
+            <Field label={joining ? 'Invitation' : 'Setup code'}>
+              <input value={code} onChange={(e) => setCode(e.target.value)} required autoComplete="off" spellCheck={false} />
             </Field>
           )}
           <Field label="Name" hint={setup ? '2 to 32 of a-z, 0-9, - and _' : undefined}>
-            <input value={name} onChange={(e) => setName(e.target.value)} autoFocus={!setup} required autoComplete="username" spellCheck={false} />
+            <input value={name} onChange={(e) => setName(e.target.value)} autoFocus={!setup && !joining} required autoComplete="username" spellCheck={false} />
           </Field>
           <Field label="Password" hint={setup ? 'At least 10 characters' : undefined}>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={setup ? 10 : 1} autoComplete={setup ? 'new-password' : 'current-password'} />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={setup || joining ? 10 : 1} autoComplete={setup || joining ? 'new-password' : 'current-password'} />
           </Field>
           {error && <p className="error" role="alert">{error}</p>}
         </Form>
+        {!setup && <p className="muted"><button className="link" onClick={() => { setJoining(!joining); setCode(''); setError(''); }}>{joining ? 'Already have an account? Sign in' : 'Have an invitation?'}</button></p>}
         <BuiltOn />
       </div>
     </main>
@@ -88,17 +97,19 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
     return () => clearTimeout(t);
   }, [error]);
 
+  const readOnly = me.role === 'viewer';
   const ctx = useMemo((): Ctx | null => {
     if (board === null) return null;
     const names = new Map([...board.agents, ...board.people].map((a) => [a.id as string, a.name as string]));
     return { board, tick, me, name: (id) => names.get(id) ?? id, act, open };
   }, [board, tick, me, act, open]);
+  const shownCtx = useMemo((): Ctx | null => ctx === null ? null : readOnly ? { ...ctx, act: async () => { setError('Viewers have read-only access'); return false; } } : ctx, [ctx, readOnly]);
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 
   const waiting = board.agents.filter((a) => a.status === 'pending').length;
   const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting };
   return (
-    <BoardContext.Provider value={ctx}>
+    <BoardContext.Provider value={shownCtx}>
       <div className="shell">
         <nav>
           <Brand />
@@ -136,6 +147,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           {route.view === 'reviews' && <Reviews />}
           {route.view === 'chat' && <Chat item={route.item} />}
           {route.view === 'agents' && <Agents />}
+          {route.view === 'people' && <People />}
           {route.view === 'costs' && <Costs />}
           {route.view === 'activity' && <Activity />}
         </main>

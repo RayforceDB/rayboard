@@ -28,6 +28,8 @@ export interface Actor {
   /** agent: pending | active | paused | revoked. user: active. */
   status: string;
   reason: string;
+  /** People: administrators manage access; members work; viewers only read. */
+  role?: 'admin' | 'member' | 'viewer';
 }
 
 export interface Field {
@@ -44,8 +46,10 @@ export interface Action {
   description: string;
   /** Who may call it. An action for `user` is never offered to agents. */
   who: 'any' | 'user' | 'agent';
-  /** Whether it changes the board: a pending, paused or revoked agent may only read. */
+  /** Whether it changes the board: a pending, paused or revoked agent and a viewer may only read. */
   mutates: boolean;
+  /** Only a human administrator may call it, even among people. */
+  admin?: boolean;
   params: Record<string, Field>;
   /** Its answer holds a secret shown once, so it is not kept as a receipt and cannot carry a request id. */
   secret?: boolean;
@@ -64,7 +68,9 @@ export interface Board {
   /** The first person overseeing the board, or null when there is none yet. */
   firstUser(): Actor | null;
   needsSetup(): boolean;
-  createUser(name: string, password: string): Promise<Actor>;
+  createUser(name: string, password: string, role?: 'admin' | 'member' | 'viewer'): Promise<Actor>;
+  /** Accepts a one-time invitation and chooses a unique login and password. */
+  acceptInvite(key: string, name: string, password: string): Promise<Actor>;
   /** The user this name and password belong to, or null. Takes the same time whether or not the name exists. */
   login(name: string, password: string): Promise<Actor | null>;
   /** Replaces a person's password after checking the one they have. Whoever holds sessions must end that person's. */
@@ -89,6 +95,12 @@ const STATUSES = [...OPEN_STATUSES, 'done', 'cancelled'] as const;
 /** An agent seen this recently is shown as online. */
 const ONLINE_MS = 120_000;
 const INBOX_WAIT_MAX = 50;
+const ROLES = ['admin', 'member', 'viewer'] as const;
+const ROLE: Field = { type: 'string', description: 'admin manages access, member collaborates, viewer only reads.', enum: ROLES };
+const HUMAN_ROLE: Field = { ...ROLE, enum: ['member', 'viewer'] };
+const INVITE_MS = 48 * 60 * 60 * 1000;
+const roleOf = (u: Row): NonNullable<Actor['role']> => u.role === 'member' || u.role === 'viewer' ? u.role : 'admin';
+const isAdmin = (a: Actor): boolean => a.kind === 'user' && a.role === 'admin';
 
 const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
 const sameHash = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -137,6 +149,8 @@ export function openBoard(options: BoardOptions): Board {
   const listeners: ((entry: Entry) => void)[] = [];
   const seen = new Map<string, number>();
   const waiting = new Map<string, Set<() => void>>();
+  /** A password hash is asynchronous: hold each invitation while it is being accepted so two requests cannot both use it. */
+  const accepting = new Set<string>();
 
   // ---- writing ----
 
@@ -169,9 +183,9 @@ export function openBoard(options: BoardOptions): Board {
     const { token: _token, ...rest } = a;
     return { ...rest, online: Date.now() - (seen.get(a.id as string) ?? 0) < ONLINE_MS ? 1 : 0 };
   };
-  const userView = (u: Row): Row => ({ id: u.id!, name: u.name!, status: u.status!, created: u.created! });
+  const userView = (u: Row): Row => ({ id: u.id!, name: u.name!, status: u.status!, role: roleOf(u), created: u.created! });
   const actorOfAgent = (a: Row): Actor => ({ id: a.id as string, kind: 'agent', name: a.name as string, status: a.status as string, reason: a.reason as string });
-  const actorOfUser = (u: Row): Actor => ({ id: u.id as string, kind: 'user', name: u.name as string, status: u.status as string, reason: '' });
+  const actorOfUser = (u: Row): Actor => ({ id: u.id as string, kind: 'user', name: u.name as string, status: u.status as string, reason: '', role: roleOf(u) });
 
   /** Everyone on the board, agents and people, by id and by name. */
   function directory(): { byId: Map<string, Actor>; byName: Map<string, Actor> } {
@@ -193,7 +207,7 @@ export function openBoard(options: BoardOptions): Board {
   /** Everyone a task concerns: who made it, who holds it, who reviews it, and who else takes part. */
   const parties = (t: Row): string[] => [t.creator as string, t.assignee as string, t.reviewer as string, ...(t.participants as string).split(' ')].filter((id) => id !== '');
   /** A private task exists only for its parties and for the people overseeing the board. */
-  const canSee = (actor: Actor, t: Row): boolean => actor.kind === 'user' || t.private !== 1 || parties(t).includes(actor.id);
+  const canSee = (actor: Actor, t: Row): boolean => isAdmin(actor) || t.private !== 1 || parties(t).includes(actor.id);
   /** The task, as far as this actor may know of it. `rev`, when given, is the revision the caller decided on. */
   function task(actor: Actor, ref: string, rev?: number): Row {
     const id = ref.toUpperCase();
@@ -234,7 +248,10 @@ export function openBoard(options: BoardOptions): Board {
     if (ref.startsWith('dm:')) {
       const [, a, b] = ref.split(':');
       const other = a === actor.id ? b : a;
-      if (actor.kind === 'user' && a !== actor.id && b !== actor.id) return { chan: ref, kind: 'dm', label: ref, party: [] };
+      if (actor.kind === 'user' && a !== actor.id && b !== actor.id) {
+        if (!isAdmin(actor)) return bad('forbidden', 'a direct conversation is visible only to its participants and administrators');
+        return { chan: ref, kind: 'dm', label: ref, party: [] };
+      }
       return place(actor, `@${someone(other ?? '').name}`);
     }
     if (!ref.startsWith('@')) {
@@ -630,7 +647,7 @@ export function openBoard(options: BoardOptions): Board {
         const review = t.status === 'in_review' ? pendingReview(t.id as string) : undefined;
         if (review === undefined) return bad('conflict', `${t.id} is ${t.status} and has no review waiting`);
         if (review.requester === actor.id) bad('forbidden', 'nobody reviews their own work');
-        if (actor.kind !== 'user' && review.reviewer !== '' && review.reviewer !== actor.id) bad('forbidden', `this review was asked of ${names().get(review.reviewer as string) ?? 'someone else'}`);
+        if (!isAdmin(actor) && review.reviewer !== '' && review.reviewer !== actor.id) bad('forbidden', `this review was asked of ${names().get(review.reviewer as string) ?? 'someone else'}`);
         const approve = p.verdict === 'approve';
         const comment = (p.comment as string | undefined) ?? '';
         if (!approve && comment.trim() === '') bad('invalid', 'say in `comment` what has to change');
@@ -754,7 +771,7 @@ export function openBoard(options: BoardOptions): Board {
     dashboard: {
       description: 'Everything the dashboard shows, in one answer.',
       who: 'user', mutates: false, params: {},
-      run() {
+      run(actor) {
         const at = now().toISOString();
         const month = new Map(store.ask(`(select {from: costs where: (>= ts (first (at rb_q 'q0))) by: {agent: agent} usd: (sum usd)})`, { ts: monthStart(at) }).map((r) => [r.agent, Number(r.usd)]));
         return {
@@ -762,44 +779,48 @@ export function openBoard(options: BoardOptions): Board {
           agents: store.all('agents').map((a) => ({ ...agentView(a), spent: month.get(a.id as string) ?? 0 })),
           people: store.all('users').map(userView),
           channels: actions.list_channels!.run({} as Actor, {}),
-          tasks: store.ask(`(select {from: tasks desc: seq take: 1000})`).map(({ body: _body, ...rest }) => rest),
-          reviews: store.ask(`(select {from: reviews where: (== status 'pending) asc: seq})`),
-          dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq)})`),
-          threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id)})`),
+          tasks: store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t)).map(({ body: _body, ...rest }) => rest),
+          reviews: actions.list_reviews!.run(actor, {}),
+          dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)),
+          threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id)})`).filter((r) => {
+            const t = store.get('tasks', r.chan as string);
+            return t !== null && canSee(actor, t);
+          }),
           enrollment: (store.get('settings', 'enroll')?.value ?? '') !== '',
+          invites: store.all('invites').filter((i) => (i.expires as string) > at).map((i) => ({ id: i.id, role: i.role, created: i.created, expires: i.expires, by: i.by })),
           seq,
         };
       },
     },
     create_agent: {
       description: 'Add an agent and get its token. The token is shown once.',
-      who: 'user', mutates: true, secret: true,
+      who: 'user', mutates: true, admin: true, secret: true,
       params: { name: str('Its name.', 32, true), kind: str('What runs it, e.g. claude-code.', 40), about: str('What it is good at.', 500), budget: { type: 'number', description: 'US dollars a month; 0 for no limit.', min: 0, max: 1_000_000 } },
       run: (actor, p) => newAgent(actor.id, { name: p.name as string, kind: p.kind as string | undefined, about: p.about as string | undefined, budget: p.budget as number | undefined }, 'active'),
     },
     approve_agent: {
       description: 'Let an agent that asked to join take part.',
-      who: 'user', mutates: true, params: { agent: str('The agent.', 40, true) },
+      who: 'user', mutates: true, admin: true, params: { agent: str('The agent.', 40, true) },
       run: (actor, p) => setAgent(actor, p.agent as string, { status: 'active', reason: '' }, 'agent.approved', (n) => `${actor.name} approved ${n}`, ['pending']),
     },
     pause_agent: {
       description: 'Stop an agent from changing anything until it is resumed. It can still read.',
-      who: 'user', mutates: true, params: { agent: str('The agent.', 40, true), reason: str('Why.', 300) },
+      who: 'user', mutates: true, admin: true, params: { agent: str('The agent.', 40, true), reason: str('Why.', 300) },
       run: (actor, p) => setAgent(actor, p.agent as string, { status: 'paused', reason: (p.reason as string | undefined) ?? `paused by ${actor.name}` }, 'agent.paused', (n) => `${actor.name} paused ${n}`, ['active']),
     },
     resume_agent: {
       description: 'Let a paused agent work again. One paused for its budget is paused again at its next report unless the budget is raised.',
-      who: 'user', mutates: true, params: { agent: str('The agent.', 40, true) },
+      who: 'user', mutates: true, admin: true, params: { agent: str('The agent.', 40, true) },
       run: (actor, p) => setAgent(actor, p.agent as string, { status: 'active', reason: '' }, 'agent.resumed', (n) => `${actor.name} resumed ${n}`, ['paused']),
     },
     revoke_agent: {
       description: 'End an agent\'s access for good. Its token stops working at once.',
-      who: 'user', mutates: true, params: { agent: str('The agent.', 40, true) },
+      who: 'user', mutates: true, admin: true, params: { agent: str('The agent.', 40, true) },
       run: (actor, p) => setAgent(actor, p.agent as string, { status: 'revoked', reason: `revoked by ${actor.name}`, token: '' }, 'agent.revoked', (n) => `${actor.name} revoked ${n}`, ['pending', 'active', 'paused']),
     },
     rotate_token: {
       description: 'Give an agent a new token. The old one stops working at once; the new one is shown once.',
-      who: 'user', mutates: true, secret: true, params: { agent: str('The agent.', 40, true) },
+      who: 'user', mutates: true, admin: true, secret: true, params: { agent: str('The agent.', 40, true) },
       run(actor, p) {
         const target = someone(p.agent as string, 'agent');
         const token = `rb_${target.id}_${secret()}`;
@@ -808,12 +829,45 @@ export function openBoard(options: BoardOptions): Board {
     },
     set_budget: {
       description: 'Set what an agent may spend in a month.',
-      who: 'user', mutates: true, params: { agent: str('The agent.', 40, true), usd: { type: 'number', description: 'US dollars a month; 0 for no limit.', required: true, min: 0, max: 1_000_000 } },
+      who: 'user', mutates: true, admin: true, params: { agent: str('The agent.', 40, true), usd: { type: 'number', description: 'US dollars a month; 0 for no limit.', required: true, min: 0, max: 1_000_000 } },
       run: (actor, p) => setAgent(actor, p.agent as string, { budget: p.usd as number }, 'agent.budget', (n) => `${actor.name} set the budget of ${n} to ${usd(p.usd as number)} a month`, ['pending', 'active', 'paused']),
+    },
+    invite_person: {
+      description: 'Invite a person with a one-time link, valid for 48 hours. New people are members unless another role is chosen.',
+      who: 'user', mutates: true, admin: true, secret: true,
+      params: { role: HUMAN_ROLE },
+      run(actor, p) {
+        const key = 'rbi_' + secret();
+        const row = { id: 'invite:' + sha(key), token: sha(key), role: (p.role as string | undefined) ?? 'member', created: now().toISOString(), expires: new Date(now().getTime() + INVITE_MS).toISOString(), by: actor.id };
+        commit('person.invited', actor.id, row.id, actor.name + ' invited a ' + row.role, { invites: [row] });
+        return { key, role: row.role, expires: row.expires };
+      },
+    },
+    revoke_invite: {
+      description: 'End an invitation before it is used.',
+      who: 'user', mutates: true, admin: true, params: { invite: str('The invitation id.', 80, true) },
+      run(actor, p) {
+        const row = store.get('invites', p.invite as string) ?? bad('not_found', 'no such invitation');
+        if ((row.expires as string) <= now().toISOString()) bad('conflict', 'the invitation has expired');
+        commit('person.invite_revoked', actor.id, row.id as string, actor.name + ' revoked an invitation', { invites: [{ ...row, expires: now().toISOString() }] });
+        return { ok: true };
+      },
+    },
+    set_role: {
+      description: "Change a person's access. The last active administrator cannot be demoted.",
+      who: 'user', mutates: true, admin: true, params: { user: str('The person.', 40, true), role: { ...ROLE, required: true } },
+      run(actor, p) {
+        const target = someone(p.user as string, 'person');
+        const row = target.kind === 'user' ? store.get('users', target.id)! : bad('not_found', 'an agent does not have a human role');
+        const role = p.role as 'admin' | 'member' | 'viewer';
+        if (roleOf(row) === 'admin' && role !== 'admin' && store.all('users').filter((u) => u.status === 'active' && roleOf(u) === 'admin').length === 1) bad('conflict', 'keep at least one active administrator');
+        commit('person.role_changed', actor.id, row.id as string, actor.name + ' made ' + row.name + ' a ' + role, { users: [{ ...row, role }] });
+        return userView({ ...row, role });
+      },
     },
     new_enrollment_key: {
       description: 'Make a new key with which agents can ask to join. The one before stops working. Shown once.',
-      who: 'user', mutates: true, secret: true, params: {},
+      who: 'user', mutates: true, admin: true, secret: true, params: {},
       run(actor) {
         const key = `rbe_${secret()}`;
         commit('enrollment.rotated', actor.id, 'enrollment', `${actor.name} made a new enrollment key`, { settings: [{ id: 'enroll', value: sha(key) }] });
@@ -822,7 +876,7 @@ export function openBoard(options: BoardOptions): Board {
     },
     disable_enrollment: {
       description: 'Stop agents from asking to join until a new key is made.',
-      who: 'user', mutates: true, params: {},
+      who: 'user', mutates: true, admin: true, params: {},
       run(actor) {
         commit('enrollment.disabled', actor.id, 'enrollment', `${actor.name} closed enrollment`, { settings: [{ id: 'enroll', value: '' }] });
         return { ok: true };
@@ -885,6 +939,8 @@ export function openBoard(options: BoardOptions): Board {
       if (broken) throw new Error('the log could not be written; the board accepts nothing until it is restarted');
       const action = Object.hasOwn(actions, name) ? actions[name]! : bad('not_found', `there is no action ${clip(name, 40)}`);
       if (action.who !== 'any' && action.who !== actor.kind) bad('forbidden', action.who === 'user' ? `${name} is for the people overseeing the board` : `${name} is for agents`);
+      if (action.admin === true && !isAdmin(actor)) bad('forbidden', `${name} is for administrators`);
+      if (action.mutates && actor.role === 'viewer') bad('forbidden', 'viewers have read-only access');
       if (action.mutates && actor.kind === 'agent' && actor.status !== 'active') {
         bad('paused', actor.status === 'pending' ? 'you are waiting for a person to approve you; until then you can only read' : `you are ${actor.status} (${actor.reason}) and can only read`);
       }
@@ -949,15 +1005,30 @@ export function openBoard(options: BoardOptions): Board {
       return newAgent('enrollment', p, 'pending');
     },
     needsSetup: () => store.count('users') === 0,
-    async createUser(name, password) {
+    async createUser(name, password, role = 'admin') {
       const handle = name.toLowerCase();
       if (!NAME.test(handle)) bad('invalid', 'a name is 2 to 32 of a-z, 0-9, - and _');
       if (password.length < 10 || password.length > 200) bad('invalid', 'a password has at least 10 characters');
       const pass = await Bun.password.hash(password, { algorithm: 'argon2id' });
       if (directory().byName.has(handle)) bad('conflict', `the name ${handle} is taken`);
-      const user: Row = { id: ident('u'), name: handle, pass, status: 'active', created: now().toISOString() };
+      if (!ROLES.includes(role)) bad('invalid', 'a person is an admin, member or viewer');
+      const user: Row = { id: ident('u'), name: handle, pass, status: 'active', role, created: now().toISOString() };
       commit('user.created', user.id as string, user.id as string, `${handle} joined as a person overseeing the board`, { users: [user] });
       return actorOfUser(user);
+    },
+    async acceptInvite(key, name, password) {
+      const id = 'invite:' + sha(key);
+      if (accepting.has(id)) bad('conflict', 'this invitation is already being accepted');
+      accepting.add(id);
+      try {
+        const invitation = store.get('invites', id) ?? bad('unauthorized', 'the invitation is not valid');
+        if ((invitation.expires as string) <= now().toISOString()) bad('unauthorized', 'the invitation has expired or was already used; ask for a new one');
+        const user = await this.createUser(name, password, invitation.role as 'admin' | 'member' | 'viewer');
+        commit('person.invite_accepted', user.id, id, user.name + ' accepted an invitation', { invites: [{ ...invitation, expires: now().toISOString() }] });
+        return user;
+      } finally {
+        accepting.delete(id);
+      }
     },
     async login(name, password) {
       const row = store.all('users').find((u) => u.name === name.toLowerCase() && u.status === 'active');

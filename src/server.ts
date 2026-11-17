@@ -205,11 +205,16 @@ export function startServer(o: ServerOptions): Server {
             const session = sessionOf(req);
             return json(200, { ok: true, setup: board.needsSetup(), user: session?.user ?? null, csrf: session?.csrf ?? null, unsafe: o.unsafe !== undefined });
           }
-          if (o.unsafe !== undefined && req.method === 'POST' && ['/api/setup', '/api/login', '/api/password'].includes(path)) return refuse('conflict', 'this board runs in unsafe mode: nobody signs in, and no password is used');
-          if (req.method === 'POST' && (path === '/api/setup' || path === '/api/login')) {
+          if (o.unsafe !== undefined && req.method === 'POST' && ['/api/setup', '/api/login', '/api/join', '/api/password'].includes(path)) return refuse('conflict', 'this board runs in unsafe mode: nobody signs in, and no password is used');
+          if (req.method === 'POST' && (path === '/api/setup' || path === '/api/login' || path === '/api/join')) {
             if (!sameOrigin(req)) return refuse('forbidden', 'this request did not come from the dashboard');
             if (!loginLimit(ip)) return refuse('rate_limited', 'too many tries; wait ten minutes', 429);
             const b = await body(req);
+            if (path === '/api/join') {
+              const user = await board.acceptInvite(text(b.key), text(b.name), text(b.password, 1000));
+              const started = startSession(user);
+              return json(200, { ok: true, user, csrf: started.csrf }, { 'Set-Cookie': started.cookie });
+            }
             if (path === '/api/setup') {
               if (setupCode === null || !board.needsSetup()) return refuse('conflict', 'this board is already set up');
               if (!same(text(b.code).trim(), setupCode)) return refuse('unauthorized', 'that is not the setup code printed on the server\'s console');
