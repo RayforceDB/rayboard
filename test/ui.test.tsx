@@ -24,3 +24,13 @@ test('inline code remains compact; GFM tables remain structured', async () => {
   expect(tree.root.findByType('table')).toBeDefined();
   expect(tree.root.findAllByType('td')).toHaveLength(2);
 });
+
+test('@ offers a participant picker at the caret, not inside an email', async () => {
+  const { mentionAt } = await import('../ui/mention');
+  expect(mentionAt('hello @', 7)).toEqual({ start: 6, query: '' });
+  expect(mentionAt('hello @mo', 9)).toEqual({ start: 6, query: 'mo' });
+  expect(mentionAt('a@b.com', 4)).toBeNull();
+  expect(mentionAt('@@', 2)).toBeNull();
+  expect(mentionAt('@alice finished', 6)).toEqual({ start: 0, query: 'alice' });
+  expect(mentionAt('@alice finished', 15)).toBeNull();
+});

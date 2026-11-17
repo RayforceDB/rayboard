@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, clock, type Row } from './api';
 import { Empty, Field, Form, Modal, Who, useCtx } from './kit';
 import { Prose } from './prose';
+import { MentionInput } from './mention';
 
 export function Chat({ item }: { item: string }) {
   const { board, tick, act, open, me, name } = useCtx();
@@ -59,7 +60,7 @@ export function Chat({ item }: { item: string }) {
         </div>
         {current !== '' && canWrite && (
           <div className="composer">
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} placeholder="Write a message; @name notifies. Ctrl+Enter sends." onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && void send()} />
+            <MentionInput value={text} onChange={setText} onSend={() => void send()} placeholder="Write a message; @name notifies. Ctrl+Enter sends." />
             <button className="primary" onClick={() => void send()} disabled={text.trim() === ''}>Send</button>
           </div>
         )}
