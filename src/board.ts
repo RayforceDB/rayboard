@@ -630,6 +630,49 @@ export function openBoard(options: BoardOptions): Board {
         return next;
       },
     },
+    move_task: {
+      description: 'Move a task between workflow stages by its board lane. Review requires an actual verdict; a required review cannot be completed by dragging.',
+      who: 'any', mutates: true,
+      params: { task: TASK, status: { type: 'string', description: 'open, in_progress, waiting, blocked, in_review or done.', enum: [...OPEN_STATUSES, 'in_review', 'done'], required: true }, rev: { ...REV, required: true }, note: str('For waiting or blocked, what it waits for and when to check next.', 2000), reviewer: str('For in_review, the reviewer; not yourself.', 40) },
+      run(actor, p) {
+        const t = task(actor, p.task as string, p.rev as number);
+        const next = p.status as string;
+        if (next === t.status) return t;
+        if (actor.kind !== 'user' && t.creator !== actor.id && t.assignee !== actor.id) bad('forbidden', 'only the creator, holder or a person may move this task');
+        if (t.status === 'done' || t.status === 'cancelled') {
+          if (next !== 'open') bad('conflict', `${t.id} is ${t.status}; reopen it to return to the board`);
+          return saveTask(actor, t, { status: 'open', result: '' }, 'task.reopened', `${actor.name} reopened ${t.id}`, told(t, 'task.reopened', `${actor.name} reopened ${t.id}`));
+        }
+        if (next === 'open') {
+          if (t.status === 'in_review') bad('conflict', 'a pending review must be decided before returning to the backlog');
+          return saveTask(actor, t, { status: 'open' }, 'task.backlog', `${actor.name} returned ${t.id} to the backlog`, told(t, 'task.backlog', `${actor.name} returned ${t.id} to the backlog`));
+        }
+        if (next === 'in_progress') {
+          if (t.status === 'in_review') bad('conflict', 'a pending review must be decided before resuming work');
+          if (t.status !== 'in_progress' && (t.assignee === '' || (actor.kind === 'agent' && t.assignee !== actor.id))) bad('conflict', 'claim or assign the task before starting it');
+          return saveTask(actor, t, { status: 'in_progress', dependency: '', check: '' }, 'task.started', `${actor.name} moved ${t.id} to in progress`, told(t, 'task.started', `${actor.name} moved ${t.id} to in progress`));
+        }
+        if (next === 'waiting' || next === 'blocked') {
+          const note = (p.note as string | undefined)?.trim();
+          if (!note) bad('invalid', 'waiting or blocked needs a note saying what it depends on and when to check next');
+          return saveTask(actor, t, { status: next, dependency: note, check: note }, `task.${next}`, `${actor.name} moved ${t.id} to ${next}`, told(t, `task.${next}`, `${actor.name} moved ${t.id} to ${next}: ${note}`));
+        }
+        if (next === 'in_review') {
+          if (t.status === 'in_review') return t;
+          const reviewer = p.reviewer === undefined ? null : available(p.reviewer as string);
+          if (reviewer?.id === actor.id) bad('invalid', 'nobody reviews their own work');
+          const review: Row = { id: ident('r'), task: t.id!, requester: actor.id, reviewer: reviewer?.id ?? '', status: 'pending', note: 'Moved to review from the board.', comment: '', decider: '', created: now().toISOString(), decided: NEVER, seq: seq + 1 };
+          saveTask(actor, t, { status: 'in_review', reviewer: reviewer?.id ?? '' }, 'review.requested', `${actor.name} asked for review of ${t.id}`, [{ dest: reviewer?.id ?? t.creator as string, type: 'review.requested', subject: t.id as string, text: `${actor.name} asks for review of ${t.id}` }], { reviews: [review] });
+          return review;
+        }
+        if (t.review === 'required') bad('forbidden', 'this task needs an independent review before it is done');
+        if (!['in_progress', 'waiting', 'blocked', 'changes_requested'].includes(t.status as string)) bad('conflict', 'start this task before completing it');
+        if (actor.kind === 'agent' && t.assignee !== actor.id) bad('forbidden', 'only its holder can complete this task');
+        const open = pendingReview(t.id as string);
+        if (t.result === '') bad('invalid', 'add the result before moving a task to done');
+        return saveTask(actor, t, { status: 'done', result: t.result, dependency: '', check: '' }, 'task.completed', `${actor.name} completed ${t.id}`, doneNotes(t, actor), open ? { reviews: [{ ...open, status: 'withdrawn', decider: actor.id, decided: now().toISOString(), seq: seq + 1 }] } : {});
+      },
+    },
     request_review: {
       description: 'Ask for a review of a task you hold. Name a reviewer, or leave it open to anyone but you. Say in `note` what you did and where to look. The task waits in in_review for the verdict.',
       who: 'any', mutates: true,

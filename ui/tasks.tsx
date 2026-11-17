@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type DragEvent, type ReactNode } from 'react';
 import { ago, api, clock, usd, when, type Row } from './api';
 import { Icon } from './icons';
 import { AgentStrip, Avatar, Badge, Empty, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
@@ -17,11 +17,14 @@ const LANES = [
 const CANCELLED = { key: 'cancelled', label: 'Cancelled', has: ['cancelled'] } as const;
 
 export function Tasks({ item }: { item: string }) {
-  const { board, open, name, me, unread, markRead } = useCtx();
+  const { board, open, name, me, unread, markRead, act } = useCtx();
   const [creating, setCreating] = useState(false);
   const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
   const [query, setQuery] = useState('');
+  const [dragging, setDragging] = useState('');
+  const [dropLane, setDropLane] = useState('');
+  const [dropError, setDropError] = useState('');
   const pick = (l: 'list' | 'board'): void => {
     setLayout(l);
     try { localStorage.setItem('rb.layout', l); } catch { /* only a convenience */ }
@@ -37,6 +40,18 @@ export function Tasks({ item }: { item: string }) {
     const ordered = lane.key === 'done' || lane.key === 'cancelled' ? tasks.slice(0, 30) : tasks.sort((x, y) => y.priority - x.priority || y.seq - x.seq);
     return { ...lane, tasks: ordered, total: tasks.length };
   });
+  const canDrag = (t: Row): boolean => me.kind === 'agent' ? t.creator === me.id || t.assignee === me.id : me.role !== 'viewer';
+  const drag = (e: DragEvent, t: Row): void => { setDragging(t.id as string); setDropError(''); e.dataTransfer.setData('application/x-rayboard-task', t.id as string); e.dataTransfer.effectAllowed = 'move'; };
+  const drop = async (e: DragEvent, lane: any): Promise<void> => {
+    e.preventDefault(); const id = e.dataTransfer.getData('application/x-rayboard-task') || dragging;
+    const t = board.tasks.find((x) => x.id === id); setDragging(''); setDropLane('');
+    if (!t || t.status === lane.key || (lane.key === 'waiting' && ['waiting','blocked'].includes(t.status as string)) || (lane.key === 'in_progress' && t.status === 'changes_requested')) return;
+    const status = lane.key as string; let note: string | undefined; let reviewer: string | undefined;
+    if (status === 'waiting' || status === 'blocked') { note = window.prompt('What does this wait for, and when should it be checked next?')?.trim(); if (!note) return; }
+    if (status === 'in_review') { reviewer = window.prompt('Reviewer name or id; leave blank for anyone but yourself')?.trim() || undefined; }
+    const ok = await act(() => api.call('move_task', { task: t.id, status, rev: t.rev, note, reviewer }));
+    if (!ok) setDropError(`Could not move ${t.id}. Check its permissions, review and current revision.`);
+  };
   /** A review this person can decide is the one thing on the board waiting on them. */
   const mine = new Set(board.reviews.filter((r) => r.requester !== me.id && (r.reviewer === '' || r.reviewer === me.id)).map((r) => r.task as string));
 
@@ -59,12 +74,14 @@ export function Tasks({ item }: { item: string }) {
         {cancelled > 0 && <label className="check cancelled-toggle"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show {cancelled} cancelled</label>}
         {board.tasks.length === 0 && <Empty>No tasks yet. Create one, or let an agent do it with <code>create_task</code>.</Empty>}
         {layout === 'board' && board.tasks.length > 0 && (
+          <>
+          {dropError && <p className="error" role="alert">{dropError}</p>}
           <div className="kanban">
             {lanes.map((lane) => (
-              <section key={lane.key} className="lane">
+              <section key={lane.key} className={`lane ${dropLane === lane.key ? 'drop-target' : ''}`} onDragOver={(e) => { if (dragging && canDrag(board.tasks.find((x) => x.id === dragging)!)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropLane(lane.key); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropLane(''); }} onDrop={(e) => void drop(e, lane)}>
                 <h3>{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
                 {lane.tasks.map((t) => (
-                  <button key={t.id} className={`card-task ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
+                  <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
                     <span className="row"><code>{t.id}</code><span className="grow" /><Prio level={t.priority} /></span>
                     <b>{t.title}</b>
                     <Tags t={t} />
@@ -77,6 +94,7 @@ export function Tasks({ item }: { item: string }) {
               </section>
             ))}
           </div>
+          </>
         )}
         {layout === 'list' && board.tasks.length > 0 && (
           <div className="groups">

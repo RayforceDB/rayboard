@@ -276,3 +276,21 @@ test('an administrator deactivates a person without deleting identity or the las
   expect(board.store.get('users', person.id)?.name).toBe('temporary-person');
   await expect(board.createUser('temporary-person', 'a sufficiently long password')).rejects.toMatchObject({ code: 'conflict' });
 });
+
+test('a board move keeps revision, permissions and independent review boundaries', async () => {
+  const a = await agent('draggable');
+  const t = await board.call(a.actor, 'create_task', { title: 'Drag me', outcome: 'It is verified', assignee: a.actor.id, review: 'required' }) as any;
+  const claimed = await board.call(a.actor, 'claim_task', { task: t.id }) as any;
+  const waiting = await board.call(a.actor, 'move_task', { task: t.id, status: 'waiting', note: 'Review tomorrow', rev: claimed.rev }) as any;
+  expect(waiting.status).toBe('waiting');
+  await expect(board.call(a.actor, 'move_task', { task: t.id, status: 'waiting', rev: claimed.rev, note: 'stale' })).rejects.toMatchObject({ code: 'conflict' });
+  const progress = await board.call(a.actor, 'move_task', { task: t.id, status: 'in_progress', rev: waiting.rev }) as any;
+  await board.call(a.actor, 'update_task', { task: t.id, rev: progress.rev, outcome: 'Evidence checked' });
+  const updated = board.store.get('tasks', t.id)!;
+  await expect(board.call(a.actor, 'move_task', { task: t.id, status: 'done', rev: updated.rev })).rejects.toMatchObject({ code: 'forbidden' });
+  await expect(board.call(a.actor, 'move_task', { task: t.id, status: 'in_review', rev: updated.rev, reviewer: a.actor.id })).rejects.toMatchObject({ code: 'invalid' });
+  await board.call(a.actor, 'move_task', { task: t.id, status: 'in_review', rev: updated.rev });
+  await expect(board.call(admin, 'move_task', { task: t.id, status: 'in_progress', rev: Number(updated.rev) + 1 })).rejects.toMatchObject({ code: 'conflict' });
+  await board.call(admin, 'review_task', { task: t.id, verdict: 'approve', rev: Number(updated.rev) + 1 });
+  expect(board.store.get('tasks', t.id)?.status).toBe('done');
+});
