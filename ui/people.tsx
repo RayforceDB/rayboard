@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, type Row } from './api';
 import { Avatar, Field, Form, Modal, Secret, useCtx } from './kit';
 
@@ -33,6 +33,7 @@ export function People() {
           {board.invites!.map((i) => <div className="row" key={i.id}><code>{i.role}</code><span className="muted">until {new Date(i.expires).toLocaleString()}</span><span className="grow" /><button onClick={() => void act(() => api.call('revoke_invite', { invite: i.id }))}>Revoke</button></div>)}
         </section>
       )}
+      {admin && <Github />}
       {adding && <Invite onClose={() => setAdding(false)} onMade={(made) => { setAdding(false); setInvite(made); }} />}
       {invite && <Secret title={`Invitation · ${invite.role}`} value={`${location.origin}${location.pathname}#invite=${encodeURIComponent(invite.key)}`} onClose={() => setInvite(null)}><p className="muted">Send this link privately. The recipient chooses their own login and password. Valid until {new Date(invite.expires).toLocaleString()}.</p></Secret>}
       {roleOf && <Role user={roleOf} onClose={() => setRoleOf(null)} />}
@@ -50,4 +51,49 @@ function Role({ user, onClose }: { user: Row; onClose: () => void }) {
   const { act } = useCtx();
   const [role, setRole] = useState(user.role);
   return <Modal title={`Access for ${user.name}`} onClose={onClose}><Form submit="Change role" onSubmit={async () => { if (await act(() => api.call('set_role', { user: user.id, role }))) onClose(); }}><Field label="Role" hint="A change applies to existing sessions immediately. The last administrator cannot be demoted."><select value={role} onChange={(e) => setRole(e.target.value)} autoFocus><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></Field></Form></Modal>;
+}
+
+/** GitHub (T-19): which repositories come in as tasks, and the App the board reads them through. Read only. */
+function Github() {
+  const { act, tick } = useCtx();
+  const [status, setStatus] = useState<Row | null>(null);
+  const [repos, setRepos] = useState('');
+  const [owner, setOwner] = useState('RayforceDB');
+  const load = (): void => void api.call('github_status').then((s: Row) => { setStatus(s); setRepos((r) => r || (s.repos as Row[]).map((x) => x.name).join(' ') || 'RayforceDB/rayforce RayforceDB/rayforce-q RayforceDB/rayforce-rs'); }, () => setStatus(null));
+  useEffect(load, [tick]);
+  if (status === null) return null;
+  const connected = status.connected as Row | null;
+  const problems = ((status.app as Row | null)?.problems as string[] | undefined) ?? [];
+  // GitHub creates the App from a manifest posted by the browser itself; the board then keeps its key and secret.
+  const connect = (): Promise<boolean> => act(async () => {
+    const started = await api.githubConnect(owner);
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = started.url;
+    const field = document.createElement('input');
+    field.type = 'hidden';
+    field.name = 'manifest';
+    field.value = JSON.stringify(started.manifest);
+    form.appendChild(field);
+    document.body.appendChild(form);
+    form.submit();
+  });
+  return (
+    <section className="panel">
+      <h3>GitHub</h3>
+      <p className="muted">Issues and pull requests of these repositories come in as tasks. Nothing is written to GitHub; conversations with people stay there.</p>
+      <Form submit="Save repositories" onSubmit={() => act(async () => { await api.call('set_github_repos', { repos: repos.trim() || 'none' }); load(); })}>
+        <Field label="Repositories" hint="owner/name, separated by spaces"><input value={repos} onChange={(e) => setRepos(e.target.value)} spellCheck={false} /></Field>
+      </Form>
+      {connected === null ? (
+        <div className="row"><Field label="Organisation"><input value={owner} onChange={(e) => setOwner(e.target.value)} spellCheck={false} /></Field><span className="grow" /><button className="primary" onClick={() => void connect()}>Connect GitHub</button></div>
+      ) : (
+        <>
+          <p>Connected as <a href={connected.html_url as string} target="_blank" rel="noreferrer noopener">{connected.slug as string}</a> in {connected.owner as string}. <a href={`${connected.html_url as string}/installations/new`} target="_blank" rel="noreferrer noopener">Choose repositories on GitHub</a></p>
+          {problems.length > 0 ? <ul className="error">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : status.app ? <p className="muted">Permissions and repositories checked {new Date((status.app as Row).checked as string).toLocaleString()}.</p> : <p className="muted">Not checked yet.</p>}
+          <div className="row end"><button onClick={() => void act(async () => { await api.githubSync(); load(); })}>Check now</button></div>
+        </>
+      )}
+    </section>
+  );
 }

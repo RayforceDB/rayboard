@@ -33,3 +33,8 @@ test('subscription synchronizes initial route, both browser events and cleanup',
     { view: 'tasks', item: 'T-4' },
   ]);
 });
+
+test('People can be linked to directly (GitHub returns there after installing the App)', () => {
+  expect(parseRoute('#people')).toEqual({ view: 'people', item: '' });
+  expect(routeHash({ view: 'people', item: '' })).toBe('#people');
+});

@@ -94,6 +94,10 @@ export interface Board {
   onChange(listener: (entry: Entry) => void): void;
   /** Takes one signed GitHub webhook delivery (T-19): its receipt and what it changes are one write. */
   githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string };
+  /** Records what the App was actually granted and what is missing for the followed repositories (no secrets). */
+  githubGrant(grant: { installation: string; permissions: Record<string, string>; repos: { id: string; name: string; private: boolean }[] }, problems: string[]): void;
+  /** The repositories followed, by name and id when known. */
+  githubFollowed(): { name: string; id: string }[];
   store: Store;
   options: BoardOptions;
   close(): void;
@@ -1106,7 +1110,13 @@ export function openBoard(options: BoardOptions): Board {
       description: 'The GitHub repositories followed and the last deliveries taken.',
       who: 'user', mutates: false, admin: true, params: {},
       run() {
-        return { repos: followed(), deliveries: store.ask(`(select {from: gh_deliveries desc: ts take: 20})`) };
+        let app: unknown = null;
+        try { app = JSON.parse(store.get('settings', 'github.app')?.value as string ?? 'null'); } catch { app = null; }
+        // Who the App is, from the file the connection wrote; its key and secret are never read here.
+        const file = join(dirname(options.base), 'github', 'app.json');
+        let connected: unknown = null;
+        try { if (existsSync(file)) { const a = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; connected = { slug: a.slug, owner: a.owner, html_url: a.html_url }; } } catch { connected = null; }
+        return { repos: followed(), connected, app, deliveries: store.ask(`(select {from: gh_deliveries desc: ts take: 20})`) };
       },
     },
     reopen_task: {
@@ -1420,6 +1430,21 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     },
     onChange: (listener) => void listeners.push(listener),
     githubDelivery,
+    githubFollowed: () => followed(),
+    githubGrant(grant, problems) {
+      const at = now().toISOString();
+      // Followed names learn their ids from the grant, so a later rename on GitHub keeps them.
+      const list = followed().map((r) => (r.id !== '' ? r : { ...r, id: grant.repos.find((g) => g.name.toLowerCase() === r.name.toLowerCase())?.id ?? '' }));
+      const stable = { installation: grant.installation, permissions: grant.permissions, repos: grant.repos.map((r) => r.name), problems };
+      let before: Record<string, unknown> = {};
+      try { before = JSON.parse(store.get('settings', 'github.app')?.value as string ?? '{}') as Record<string, unknown>; } catch { before = {}; }
+      const { checked: _checked, ...was } = before;
+      // A check that finds what the last one found writes nothing: it runs every ten minutes.
+      if (JSON.stringify(was) === JSON.stringify(stable) && JSON.stringify(list) === JSON.stringify(followed())) return;
+      const value = JSON.stringify({ ...stable, checked: at });
+      commit('github.grant', 'github', 'github.app', problems.length === 0 ? 'GitHub App grant checked' : `GitHub App grant checked: ${problems.join('; ')}`,
+        { settings: [{ id: 'github.app', value }, { id: 'github.repos', value: JSON.stringify(list) }] }, [], problems.length === 0);
+    },
     close: () => store.close(),
   };
   return api;

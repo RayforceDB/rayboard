@@ -49,6 +49,8 @@ export const api = {
   removeAvatar: () => send('/api/call/remove_avatar', {}),
   password: (current: string, next: string) => send('/api/password', { current, next }),
   call: async <T = any>(action: string, params: Row = {}): Promise<T> => (await send(`/api/call/${action}`, params)).result as T,
+  githubConnect: (owner: string): Promise<{ url: string; manifest: Row }> => send('/api/github/connect', { owner }),
+  githubSync: () => send('/api/github/sync', {}),
 };
 
 /** The board as the dashboard shows it, asked for again whenever the server says something changed. `tick` grows with every change. */

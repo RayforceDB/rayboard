@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { signed } from './github';
+import { GithubApp, manifest, missing, signed } from './github';
 import { BoardError, type Actor, type Board, type ErrorCode } from './board';
 import { mcp } from './mcp';
 
@@ -37,6 +37,8 @@ export interface ServerOptions {
   /** The built dashboard. */
   ui: string;
   log: (line: string) => void;
+  /** How the server reaches GitHub: fetch, or a stand-in in tests. */
+  githubFetch?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 export interface Server {
@@ -76,6 +78,33 @@ export function startServer(o: ServerOptions): Server {
   const cookieName = secure ? '__Host-rb' : 'rb';
   const sessions = new Map<string, { user: string; until: number; csrf: string }>();
   const sockets = new Set<import('bun').ServerWebSocket<{ user: string; key: string }>>();
+  // GitHub (T-19): the App, the one-time states of a connection under way, and the reconciliation that keeps the board current.
+  const github = new GithubApp(join(dirname(o.board.options.base), 'github'), o.githubFetch ?? fetch);
+  const connecting = new Map<string, number>();
+  let syncing = false;
+  async function syncGithub(): Promise<void> {
+    if (!github.connected || syncing) return;
+    syncing = true;
+    try {
+      const grant = await github.grant();
+      const followed = o.board.githubFollowed();
+      o.board.githubGrant(grant, missing(grant, followed.map((r) => r.name)));
+      // Open items, and those closed in the last thirty days: the cutoff is fixed for the whole pass.
+      const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
+      for (const r of followed) {
+        const granted = grant.repos.find((g) => (r.id !== '' ? g.id === r.id : g.name.toLowerCase() === r.name.toLowerCase()));
+        if (granted === undefined) continue;
+        for await (const d of github.snapshot(granted, cutoff)) {
+          const item = (d.payload.issue ?? d.payload.pull_request) as Record<string, unknown>;
+          o.board.githubDelivery(`sync-${granted.id}-${item.number}-${item.updated_at}`, d.event, d.payload);
+        }
+      }
+    } catch (err) {
+      o.log(`github: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      syncing = false;
+    }
+  }
   let setupCode = board.needsSetup() && o.unsafe === undefined ? randomBytes(12).toString('hex').replace(/(.{6})(?=.)/g, '$1-') : null;
   const loginLimit = limiter(10, 10 * 60_000);
   const joinLimit = limiter(20, 60 * 60_000);
@@ -91,7 +120,7 @@ export function startServer(o: ServerOptions): Server {
     'Cross-Origin-Resource-Policy': 'same-origin',
     ...(secure ? { 'Strict-Transport-Security': 'max-age=31536000' } : {}),
   };
-  const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://github.com";
 
   const json = (status: number, body: unknown, extra: Record<string, string> = {}): Response =>
     new Response(JSON.stringify(body), { status, headers: { ...baseHeaders, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra } });
@@ -216,6 +245,18 @@ export function startServer(o: ServerOptions): Server {
           const answer = await mcp(board, actor, message, VERSION);
           return answer === null ? new Response(null, { status: 202, headers: baseHeaders }) : json(200, answer);
         }
+        // GitHub sends the administrator back here after creating the App. Cookies are not sent on that cross-site
+        // return, so it is bound to the one-time state the board gave when the connection began.
+        if (path === '/api/github/manifest' && req.method === 'GET') {
+          const state = url.searchParams.get('state') ?? '';
+          const until = connecting.get(state);
+          connecting.delete(state);
+          if (until === undefined || until < Date.now()) return refuse('unauthorized', 'this GitHub connection was not started here, or took longer than an hour; start it again', 401);
+          const info = await GithubApp.convert(join(dirname(board.options.base), 'github'), url.searchParams.get('code') ?? '', o.githubFetch ?? fetch);
+          o.log(`github: connected as App ${info.slug} (${info.id}) of ${info.owner}`);
+          // Next, choose the repositories to install it on; GitHub returns to the board afterwards.
+          return new Response(null, { status: 302, headers: { ...baseHeaders, Location: `${info.html_url}/installations/new` } });
+        }
         // GitHub's webhook (T-19): no session, only the signature made with the secret kept beside the board.
         if (path === '/api/github') {
           if (req.method !== 'POST') return new Response(null, { status: 405, headers: { ...baseHeaders, Allow: 'POST' } });
@@ -292,6 +333,23 @@ export function startServer(o: ServerOptions): Server {
             const b = await body(req);
             return json(200, { ok: true, result: board.register(text(b.key), { name: text(b.name), kind: text(b.kind) || undefined, about: text(b.about, 500) || undefined }, o.unsafe !== undefined) });
           }
+          if ((path === '/api/github/connect' || path === '/api/github/sync') && req.method === 'POST') {
+            const session = trusted(req);
+            if (session instanceof Response) return session;
+            if (session.user.role !== 'admin') return refuse('forbidden', 'only an administrator connects GitHub');
+            if (path === '/api/github/sync') {
+              await syncGithub();
+              return json(200, { ok: true });
+            }
+            if (github.connected) return refuse('conflict', 'GitHub is already connected to this board');
+            const b = await body(req);
+            const owner = text(b.owner, 100) || 'RayforceDB';
+            if (!/^[A-Za-z0-9-]{1,39}$/.test(owner)) return refuse('invalid', 'not a GitHub organisation name');
+            const state = randomBytes(24).toString('base64url');
+            connecting.set(state, Date.now() + 3_600_000);
+            const origin = req.headers.get('origin') ?? '';
+            return json(200, { ok: true, url: `https://github.com/organizations/${owner}/settings/apps/new?state=${state}`, manifest: manifest(origin) });
+          }
           if (path === '/api/actions' && req.method === 'GET') {
             const actor = who(req);
             if (actor instanceof Response) return actor;
@@ -363,7 +421,10 @@ export function startServer(o: ServerOptions): Server {
   const sweep = setInterval(() => {
     const at = Date.now();
     for (const [key, s] of sessions) if (s.until < at) sessions.delete(key);
+    for (const [state, until] of connecting) if (until < at) connecting.delete(state);
   }, 60_000);
+  const githubTimer = setInterval(() => void syncGithub(), 10 * 60_000);
+  const githubFirst = setTimeout(() => void syncGithub(), 3_000);
 
   return {
     url: `${o.tls ? 'https' : 'http'}://${o.host.includes(':') ? `[${o.host}]` : o.host}:${server.port}`,
@@ -373,6 +434,8 @@ export function startServer(o: ServerOptions): Server {
     },
     async stop() {
       clearInterval(sweep);
+      clearInterval(githubTimer);
+      clearTimeout(githubFirst);
       await server.stop(true);
     },
   };
