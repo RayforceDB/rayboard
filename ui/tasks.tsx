@@ -4,6 +4,7 @@ import { Icon } from './icons';
 import { AgentStrip, Avatar, Badge, Empty, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
+import { ResizeHandle, panelWidth } from './resize';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -188,7 +189,8 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [onClose]);
-  const shell = (body: ReactNode) => <aside className="drawer" aria-label={`Task ${id}`}>{body}</aside>;
+  const [width, setWidth] = useState(() => panelWidth('task', 400, 320, 720));
+  const shell = (body: ReactNode) => <aside className="drawer" style={{ width }} aria-label={`Task ${id}`}><ResizeHandle name="task panel" value={width} setValue={setWidth} min={320} max={720} reverse />{body}</aside>;
   if (missing) return shell(<><header className="drawer-bar"><code>{id}</code><span className="grow" /><button className="ghost icon" onClick={onClose} aria-label="Close"><Icon name="x" /></button></header><p className="error pad">{missing}</p></>);
   if (d === null) return shell(null);
   const t = d.task;

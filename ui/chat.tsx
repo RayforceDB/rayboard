@@ -3,12 +3,14 @@ import { api, clock, type Row } from './api';
 import { Empty, Field, Form, Modal, Who, useCtx } from './kit';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
+import { ResizeHandle, panelWidth } from './resize';
 
 export function Chat({ item }: { item: string }) {
   const { board, tick, act, open, me, name, unread, markRead } = useCtx();
   const [messages, setMessages] = useState<Row[]>([]);
   const [text, setText] = useState('');
   const [creating, setCreating] = useState(false);
+  const [listWidth, setListWidth] = useState(() => panelWidth('conversations', 220, 180, 360));
   const end = useRef<HTMLDivElement>(null);
   const current = item || (board.channels[0]?.id as string | undefined) || '';
   const channel = board.channels.find((c) => c.id === current);
@@ -36,7 +38,7 @@ export function Chat({ item }: { item: string }) {
   const watched = board.dms.filter((d) => !mine(d.chan));
 
   return (
-    <div className="chat">
+    <div className="chat" style={{ gridTemplateColumns: `${listWidth}px minmax(0, 1fr)` }}>
       <aside>
         <h3>Channels {me.role !== 'viewer' && <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button>}</h3>
         {board.channels.length === 0 && <p className="muted pad">No channels yet.</p>}
@@ -46,6 +48,7 @@ export function Chat({ item }: { item: string }) {
         {watched.length > 0 && <h3>Between agents</h3>}
         {watched.map((d) => <button key={d.chan} className={`${d.chan === current ? 'on' : ''} ${unread(d) ? 'unread' : ''}`} onClick={() => open('chat', d.chan)}><span className="grow">{dmLabel(d.chan)}</span><span className="muted">{d.n}</span></button>)}
       </aside>
+      <ResizeHandle name="conversation list" value={listWidth} setValue={setListWidth} min={180} max={360} />
       <section>
         <header className="head">
           <h2>{channel ? `# ${channel.name}` : current.startsWith('dm:') ? dmLabel(current) : 'Messages'}</h2>

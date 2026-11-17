@@ -11,6 +11,7 @@ import { Tasks } from './tasks';
 import { Profile } from './profile';
 import { unreadCount, useUnread } from './unread';
 import { listenToRoute, parseRoute, routeHash } from './route';
+import { ResizeHandle, panelWidth } from './resize';
 
 /** The sidebar: what there is to look at, in the order of a working day. */
 const NAV: [view: string, label: string, icon: IconName][] = [
@@ -79,6 +80,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   const [changing, setChanging] = useState(false);
   const unread = useUnread(me.id);
   const [profile, setProfile] = useState(false);
+  const [sidebar, setSidebar] = useState(() => panelWidth('sidebar', 236, 180, 360));
   const open = useCallback((view: string, item = '') => {
     const hash = routeHash({ view, item });
     if (location.hash !== hash) history.pushState(null, '', hash);
@@ -114,7 +116,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   const counts: Record<string, number> = { reviews: board.reviews.length, agents: waiting, tasks: unreadCount(board.tasks,unread.reads,me.id), chat: unreadCount([...board.channels,...board.dms],unread.reads,me.id) };
   return (
     <BoardContext.Provider value={shownCtx}>
-      <div className="shell">
+      <div className="shell" style={{ gridTemplateColumns: `${sidebar}px minmax(0, 1fr)` }}>
         <nav>
           <Brand />
           <div className="section">
@@ -145,6 +147,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
             {unsafe ? <span className="unsafe" title="Nobody signs in: whoever reaches this port oversees the board">unsafe</span> : <button className="ghost icon" onClick={() => void api.logout().then(onSignedOut)} aria-label="Sign out" title="Sign out"><Icon name="out" /></button>}
           </div>
         </nav>
+        <ResizeHandle name="sidebar" value={sidebar} setValue={setSidebar} min={180} max={360} />
         <main>
           {route.view === 'overview' && <Overview />}
           {route.view === 'tasks' && <Tasks item={route.item} />}
