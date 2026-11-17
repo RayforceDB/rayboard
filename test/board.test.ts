@@ -295,17 +295,26 @@ test('a board move keeps revision, permissions and independent review boundaries
   expect(board.store.get('tasks', t.id)?.status).toBe('done');
 });
 
-test('@all expands only to eligible active participants, never direct-message outsiders', async () => {
+test('@all reaches the active subscribers of a channel, never unsubscribed accounts or direct-message outsiders', async () => {
   const a = (await agent('author')).actor;
   const b = (await agent('reader')).actor;
   const c = (await agent('outsider')).actor;
+  const lurker = (await agent('lurker')).actor;
   await board.call(a, 'create_channel', { name: 'all-hands' });
+  // In a channel @all is everyone following it: its active subscribers (Anton's decision on T-13).
+  for (const who of [a, b, c, admin]) await board.call(who, 'set_channel_subscription', { channel: '#all-hands', subscribed: true });
   const message = await board.call(a, 'post_message', { to: '#all-hands', body: 'Please see @all; #all-hands is a channel' }) as any;
   expect(message.mentions.split(' ')).toContain(b.id);
   expect(message.mentions.split(' ')).toContain(admin.id);
   expect(message.mentions.split(' ')).not.toContain(a.id);
-  expect((await inbox(b)).some((n) => n.subject === message.chan)).toBe(true);
+  // An active agent who does not follow the channel is not woken by @all, though it has an account.
+  expect(message.mentions.split(' ')).not.toContain(lurker.id);
+  expect((await inbox(lurker)).some((n) => n.subject === message.chan)).toBe(false);
+  expect((await inbox(b)).some((n) => n.subject === message.chan && n.type === 'mention')).toBe(true);
   expect((await inbox(admin)).some((n) => n.subject === message.chan)).toBe(true);
+  // A person named directly is still told, subscribed or not.
+  const named = await board.call(a, 'post_message', { to: '#all-hands', body: '@all and @lurker' }) as any;
+  expect(named.mentions.split(' ')).toContain(lurker.id);
   await board.call(admin, 'pause_agent', { agent: c.id, reason: 'offline test' });
   const second = await board.call(a, 'post_message', { to: '#all-hands', body: '@all again' }) as any;
   expect(second.mentions.split(' ')).not.toContain(c.id);

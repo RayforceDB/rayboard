@@ -74,7 +74,7 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
     {active && candidates.length > 0 && <div className="mention-list" id="mention-options" role="listbox" aria-label={label}>
       {candidates.map((p, i) => <button type="button" id={optionId(i)} role="option" aria-selected={i === picked % candidates.length} key={p.id} className={i === picked % candidates.length ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(p)}>
           {active.kind === 'channel' ? <span className="channel-mark" aria-hidden="true">#</span> : p.id === '@all' ? <span className="all-mark" aria-hidden="true">@</span> : <Avatar id={p.id} size={28} />}
-          <span>{active.kind === 'channel' ? '#' : '@'}{p.name}</span><small>{active.kind === 'channel' ? 'channel' : p.id === '@all' ? 'all participants here' : p.kind === 'user' ? p.role : p.kind}</small>
+          <span>{active.kind === 'channel' ? '#' : '@'}{p.name}</span><small>{active.kind === 'channel' ? 'channel' : p.id === '@all' ? 'everyone following this' : p.kind === 'user' ? p.role : p.kind}</small>
         </button>)}
     </div>}
   </div>;

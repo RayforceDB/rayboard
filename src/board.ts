@@ -332,7 +332,9 @@ export function openBoard(options: BoardOptions): Board {
     const mentioned = [...new Set(names.flatMap((name) => {
       if (name === 'all') {
         if (where.closed === true) return where.party;
-        const eligible = where.kind === 'task' ? store.all('tasks').filter((t) => t.id === where.chan).flatMap(parties) : [...dir.byId.keys()];
+        // Everyone taking part here: a task's parties, or a channel's active subscribers. Nobody who merely
+        // has an account is woken by a channel they do not follow (Anton, T-13).
+        const eligible = where.kind === 'task' ? store.all('tasks').filter((t) => t.id === where.chan).flatMap(parties) : where.party;
         return eligible.filter((id) => id !== actor.id && dir.byId.get(id)?.status === 'active');
       }
       const who = dir.byName.get(name);
