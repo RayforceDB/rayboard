@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { type CSSProperties } from 'react';
 import { api, clock, type Row } from './api';
-import { Empty, Field, Form, Modal, Who, useCtx } from './kit';
+import { Avatar, Empty, Field, Form, Modal, Who, agentState, useCtx } from './kit';
+import { Icon } from './icons';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
@@ -49,17 +50,54 @@ export function Chat({ item }: { item: string }) {
   const others = [...board.agents.filter((a) => a.status !== 'revoked'), ...board.people.filter((p) => p.status === 'active')].filter((a) => a.id !== me.id);
   const dmOf = (id: string): string => `dm:${[me.id, id].sort().join(':')}`;
   const watched = board.dms.filter((d) => !mine(d.chan));
+  const people = others.filter((a) => board.people.some((p) => p.id === a.id));
+  const agents = others.filter((a) => board.agents.some((x) => x.id === a.id));
+  const [folded, setFolded] = useState(() => { try { return localStorage.getItem('rayboard.chat.pairs') === 'folded'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('rayboard.chat.pairs', folded ? 'folded' : 'open'); } catch { /* a preference only */ } }, [folded]);
+  /** One person or agent to talk to directly: who, and a line under the name that says what they are or are doing. */
+  const conv = ({ id, sub, tone, title }: { id: string; sub: string; tone?: string; title?: string }) => {
+    const dm = board.dms.find((d) => d.chan === dmOf(id));
+    return (
+      <button key={id} className={`conv who2 ${dmOf(id) === current ? 'on' : ''} ${unread(dm ?? {}) ? 'unread' : ''}`} onClick={() => open('chat', dmOf(id))} title={title}>
+        <span className="face"><Avatar id={id} size={28} />{tone !== undefined && <i className={`presence ${tone}`} />}</span>
+        <span className="grow lines"><span className="name">{name(id)}</span><span className="sub">{sub}</span></span>
+        {dm && Number(dm.n) > 0 && <span className="n">{dm.n}</span>}
+      </button>
+    );
+  };
 
   return (
     <div className="chat" style={{ gridTemplateColumns: `${listWidth}px minmax(0, 1fr)`, '--conversation-width': `${listWidth}px` } as CSSProperties}>
-      <aside>
-        <h3>Channels {me.role !== 'viewer' && <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button>}</h3>
+      <aside className="conversations">
+        <h3 className="label">Channels {me.role !== 'viewer' && <button className="ghost icon" onClick={() => setCreating(true)} aria-label="New channel">+</button>}</h3>
         {board.channels.length === 0 && <p className="muted pad">No channels yet.</p>}
-        {board.channels.map((c) => <button key={c.id} className={`${c.id === current ? 'on' : ''} ${unread(c) ? 'unread' : ''}`} onClick={() => open('chat', c.id)}><span className="grow"># {c.name}</span><span className="muted">{c.messages || ''}</span></button>)}
-        <h3>Direct</h3>
-        {others.map((a) => <button key={a.id} className={`${dmOf(a.id) === current ? 'on' : ''} ${unread(board.dms.find((d)=>d.chan===dmOf(a.id))??{}) ? 'unread' : ''}`} onClick={() => open('chat', dmOf(a.id))}><Who id={a.id} /></button>)}
-        {watched.length > 0 && <h3>Between agents</h3>}
-        {watched.map((d) => <button key={d.chan} className={`${d.chan === current ? 'on' : ''} ${unread(d) ? 'unread' : ''}`} onClick={() => open('chat', d.chan)}><span className="grow">{dmLabel(d.chan)}</span><span className="muted">{d.n}</span></button>)}
+        {board.channels.map((c) => (
+          <button key={c.id} className={`conv ${c.id === current ? 'on' : ''} ${unread(c) ? 'unread' : ''}`} onClick={() => open('chat', c.id)}>
+            <span className="glyph" aria-hidden="true">#</span>
+            <span className="grow">{c.name as string}</span>
+            {Number(c.messages) > 0 && <span className="n" title={`${c.messages} messages`}>{c.messages}</span>}
+          </button>
+        ))}
+        {people.length > 0 && <h3 className="label">People</h3>}
+        {people.map((p) => conv({ id: p.id as string, sub: p.role === 'admin' ? 'oversees the board' : p.role === 'viewer' ? 'viewer' : 'member' }))}
+        {agents.length > 0 && <h3 className="label">Agents</h3>}
+        {agents.map((a) => { const st = agentState(board, a); return conv({ id: a.id as string, sub: st.label, tone: st.tone, title: st.title }); })}
+        {watched.length > 0 && (
+          <h3 className="label">
+            <button className="fold" aria-expanded={!folded} onClick={() => setFolded(!folded)}><Icon name="chevron" size={12} />Between agents</button>
+            {folded && <span className="n">{watched.length}</span>}
+          </h3>
+        )}
+        {!folded && watched.map((d) => {
+          const pair = (d.chan as string).split(':').slice(1);
+          return (
+            <button key={d.chan} className={`conv pair ${d.chan === current ? 'on' : ''} ${unread(d) ? 'unread' : ''}`} onClick={() => open('chat', d.chan)} title={`A conversation between ${pair.map(name).join(' and ')}, shown to you as an overseer`}>
+              <span className="duo" aria-hidden="true">{pair.slice(0, 2).map((id) => <Avatar key={id} id={id} size={20} />)}</span>
+              <span className="grow">{pair.map(name).join(' · ')}</span>
+              <span className="n">{d.n}</span>
+            </button>
+          );
+        })}
       </aside>
       <ResizeHandle name="conversation list" storageName="conversations" value={listWidth} setValue={setListWidth} min={180} max={360} />
       <section>
