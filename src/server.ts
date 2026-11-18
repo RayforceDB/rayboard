@@ -94,7 +94,7 @@ export function startServer(o: ServerOptions): Server {
   // Who is writing where (T-476): in this process's memory only, never in the board. Each lasts TYPING_MS from
   // its last report; a report, a post, a stop, the writer's last socket closing or the lapse ends it.
   const TYPING_MS = o.typingMs ?? 8_000;
-  const typing = new Map<string, { chan: string; who: string; until: number; sent: number; tab: string }>();
+  const typing = new Map<string, { chan: string; who: string; until: number; sent: number; told: number; tab: string }>();
   /** At most this many conversations one writer types in at once, and one frame a second for each (Mattew, T-476). */
   const TYPING_PLACES = 10;
   const TYPING_FRAME_MS = 1_000;
@@ -118,9 +118,10 @@ export function startServer(o: ServerOptions): Server {
       const had = typing.get(key);
       if (had === undefined && [...typing.values()].filter((t) => t.who === who).length >= TYPING_PLACES) return;
       const until = at + Math.min(holdMs ?? TYPING_MS, 60_000);
-      // A repeat within a second is kept but not told: readers' pages let it lapse no sooner than its last frame said.
-      const tell = had === undefined || at - had.sent >= TYPING_FRAME_MS;
-      typing.set(key, { chan, who, until, sent: tell ? at : had.sent, tab: tab ?? had?.tab ?? '' });
+      // A repeat within a second is kept but not told, unless it carries the end more than a second past what
+      // readers were told (an agent lengthening its hold, Mattew): their pages would let it lapse too soon.
+      const tell = had === undefined || at - had.sent >= TYPING_FRAME_MS || until > had.told + TYPING_FRAME_MS;
+      typing.set(key, { chan, who, until, sent: tell ? at : had.sent, told: tell ? until : had.told, tab: tab ?? had?.tab ?? '' });
       if (tell) tellTyping(chan, who, until);
     } else if (typing.delete(key)) {
       tellTyping(chan, who, 0);

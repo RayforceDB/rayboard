@@ -50,8 +50,14 @@ export const REPORT_MS = 3000;
 export function useReportTyping(to: string | null, text: string): void {
   const last = useRef(0);
   const at = useRef<string | null>(null);
+  // What the text was when this conversation was opened: a draft carried over, or already there, is nobody typing
+  // (Mattew, T-476). Only a change the person makes to it here is reported.
+  const seen = useRef<{ to: string | null; text: string }>({ to: null, text: '' });
   useEffect(() => {
     if (to === null) return;
+    if (seen.current.to !== to) { seen.current = { to, text }; return; }
+    if (seen.current.text === text) return;
+    seen.current = { to, text };
     const stop = (): void => {
       if (at.current !== null) void api.call('typing', { to: at.current, composing: false, tab: TAB }).catch(() => {});
       at.current = null;

@@ -197,3 +197,21 @@ test('typing changes nothing else anyone can see: no event, activity, cost, mess
   const after = { events: count('events'), messages: count('messages'), notes: count('notes'), costs: count('costs'), activity: JSON.stringify(await board.call(anton, 'activity', { limit: 5 })), unread: await dash() };
   expect(after).toEqual(before);
 });
+
+test('an agent lengthening its hold within the second is told at once, so every reader keeps it as long', async () => {
+  const { server, token, helper } = await setup(5000);
+  const v = await feed(server.url, 'vic');
+  const call = (p: object) => fetch(`${server.url}/api/call/typing`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
+  await call({ to: '#general', hold: 1 });
+  await settle(100);
+  await call({ to: '#general', hold: 4 });
+  await settle();
+  const mine = v.typing().filter((t) => t.who === helper.id);
+  expect(mine.length).toBe(2);
+  expect(mine.at(-1).ms).toBeGreaterThan(3000);
+  // A reader arriving now is told the same end, give or take the time between.
+  const w = await feed(server.url, 'anton');
+  await settle();
+  expect(Math.abs(w.typing().at(-1).ms - mine.at(-1).ms)).toBeLessThan(500);
+  v.ws.close(); w.ws.close();
+});
