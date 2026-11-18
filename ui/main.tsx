@@ -8,6 +8,7 @@ import { Icon, type IconName } from './icons';
 import { AgentStrip, Avatar, Badge, BoardContext, mayDecide, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
+import { Settings } from './settings';
 import { NONE, projectsOf, useProject } from './projects';
 import { ProjectMark } from './marks';
 import { Profile } from './profile';
@@ -32,6 +33,7 @@ const NAV: [view: string, label: string, icon: IconName][] = [
   ['people', 'People', 'user'],
   ['costs', 'Costs', 'costs'],
   ['activity', 'Activity', 'activity'],
+  ['settings', 'Settings', 'settings'],
 ];
 
 function App() {
@@ -136,7 +138,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
         <nav>
           <Brand />
           <div className="section">
-            {NAV.map(([view, label, icon]) => (
+            {NAV.filter(([view]) => view !== 'settings' || me.role === 'admin').map(([view, label, icon]) => (
               <button key={view} className={route.view === view ? 'on' : ''} onClick={() => open(view)}>
                 <Icon name={icon} size={24} />
                 {label}
@@ -174,6 +176,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
           {route.view === 'people' && <People />}
           {route.view === 'costs' && <Costs />}
           {route.view === 'activity' && <Activity />}
+          {route.view === 'settings' && <Settings />}
         </main>
         {profile && <Profile onClose={() => setProfile(false)} onPassword={() => { setProfile(false); setChanging(true); }} />}
         {changing && <Password onClose={() => setChanging(false)} onDone={onSignedOut} />}

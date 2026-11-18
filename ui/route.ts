@@ -1,5 +1,5 @@
 /** Hash routes carry identifiers, never URLs to fetch or HTML to render. */
-export const VIEWS = ['overview', 'tasks', 'reviews', 'chat', 'agents', 'people', 'costs', 'activity'] as const;
+export const VIEWS = ['overview', 'tasks', 'reviews', 'chat', 'agents', 'people', 'costs', 'activity', 'settings'] as const;
 export type Route = { view: string; item: string };
 
 export function parseRoute(hash: string): Route {

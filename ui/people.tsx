@@ -33,7 +33,6 @@ export function People() {
           {board.invites!.map((i) => <div className="row" key={i.id}><code>{i.role}</code><span className="muted">until {new Date(i.expires).toLocaleString()}</span><span className="grow" /><button onClick={() => void act(() => api.call('revoke_invite', { invite: i.id }))}>Revoke</button></div>)}
         </section>
       )}
-      {admin && <Github />}
       {adding && <Invite onClose={() => setAdding(false)} onMade={(made) => { setAdding(false); setInvite(made); }} />}
       {invite && <Secret title={`Invitation · ${invite.role}`} value={`${location.origin}${location.pathname}#invite=${encodeURIComponent(invite.key)}`} onClose={() => setInvite(null)}><p className="muted">Send this link privately. The recipient chooses their own login and password. Valid until {new Date(invite.expires).toLocaleString()}.</p></Secret>}
       {roleOf && <Role user={roleOf} onClose={() => setRoleOf(null)} />}
@@ -57,7 +56,7 @@ function Role({ user, onClose }: { user: Row; onClose: () => void }) {
  * GitHub (T-19): the App the board reads through, and the repositories it follows. Those are chosen in one
  * place, the App's installation on GitHub; here they are only shown.
  */
-function Github() {
+export function Github() {
   const { act, tick } = useCtx();
   const [status, setStatus] = useState<Row | null>(null);
   const [owner, setOwner] = useState('RayforceDB');

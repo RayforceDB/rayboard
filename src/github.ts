@@ -132,7 +132,7 @@ export function manifest(base: string): Record<string, unknown> {
     url: base,
     hook_attributes: { url: `${base}/api/github`, active: true },
     redirect_url: `${base}/api/github/manifest`,
-    setup_url: `${base}/#people`,
+    setup_url: `${base}/#settings`,
     public: false,
     default_permissions: { metadata: 'read', issues: 'write', pull_requests: 'read', checks: 'read' },
     default_events: ['issues', 'issue_comment', 'pull_request', 'pull_request_review', 'check_run'],
