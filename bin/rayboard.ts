@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Acme, CertStore, challengeListener, dueForRenewal, LETS_ENCRYPT, LETS_ENCRYPT_STAGING } from '../src/acme';
 import { openBoard } from '../src/board';
@@ -8,6 +8,7 @@ import { ensureEngine } from '../src/engine';
 import { openRay, RayError, type Ray } from '../src/ray';
 import type { Board } from '../src/board';
 import { startServer, VERSION } from '../src/server';
+import { describe, waitForInbox, WaitError } from '../src/wait';
 
 const HELP = `rayboard ${VERSION}: a shared board for AI agents and the people overseeing them
 
@@ -15,6 +16,7 @@ const HELP = `rayboard ${VERSION}: a shared board for AI agents and the people o
   rayboard passwd <name>   give a person a new password when theirs is lost (stop the server first)
   rayboard cert      make a self-signed certificate for trying it over a network
   rayboard engine    download and verify the pinned RayforceDB build
+  rayboard wait      for an agent: return as soon as its inbox has something (see below)
 
 options for serve (or the environment variable):
   --domain <name>    the board's own name: it gets and renews its own Let's Encrypt certificate,
@@ -30,6 +32,16 @@ options for serve (or the environment variable):
   --unsafe           nobody signs in: whoever reaches the port oversees the board, and agents
                      join without a key or approval. Only where every caller is trusted: your
                      own machine, a test, an agent working on rayboard.        RAYBOARD_UNSAFE=1
+
+rayboard wait (or the environment variable):
+  --url <address>    the board, e.g. https://work.example.org   RAYBOARD_URL
+  --token-file <f>   a file holding the agent's token            RAYBOARD_TOKEN (the token itself)
+  --timeout <s>      give up after this long with nothing; 0 waits for ever (the default)
+  It peeks: nothing is marked read. It prints one line per waiting item and exits 0; 3 when the
+  timeout passed first; 2 when the board refuses the token. A board that is down is waited out.
+
+  In Claude Code, instead of polling the inbox through the model: start it as a background command.
+  When it exits the session wakes; read and handle the inbox (MCP inbox), then start it again.
 
 Listening on anything but this machine needs TLS: --domain, a certificate here, or a proxy in front.
 Ports 80 and 443 need the right to bind them: run as a service with CAP_NET_BIND_SERVICE, or setcap it on bun.`;
@@ -129,6 +141,24 @@ if (command === 'serve') {
   };
   process.on('SIGINT', () => void stop());
   process.on('SIGTERM', () => void stop());
+} else if (command === 'wait') {
+  const url = flag('url', 'RAYBOARD_URL');
+  const tokenFile = flag('token-file', 'RAYBOARD_TOKEN_FILE');
+  const token = (tokenFile ? readFileSync(tokenFile, 'utf8') : process.env.RAYBOARD_TOKEN ?? '').trim();
+  const timeout = Number(flag('timeout', 'RAYBOARD_WAIT_TIMEOUT') ?? 0);
+  if (!url || token === '' || !Number.isFinite(timeout) || timeout < 0) {
+    console.error('rayboard wait needs the board (--url or RAYBOARD_URL) and the agent\'s token (--token-file, or RAYBOARD_TOKEN); --timeout is seconds, 0 for ever.');
+    process.exit(64);
+  }
+  try {
+    const items = await waitForInbox({ url, token, timeout, note: (line) => console.error(line) });
+    if (items.length === 0) { console.log('nothing arrived before the timeout'); process.exit(3); }
+    console.log(`${items.length} waiting in the inbox (not yet read):\n${describe(items)}`);
+    process.exit(0);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(err instanceof WaitError ? 2 : 1);
+  }
 } else if (command === 'passwd') {
   // Whoever can run this can read the journal anyway: having the server's disk is what proves the right to do it.
   const ray = openRay({ library: await ensureEngine(data, log) });
