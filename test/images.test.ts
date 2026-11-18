@@ -25,7 +25,7 @@ async function setup() {
   const agentToken = ((await board.call(board.firstUser()!, 'create_agent', { name: 'helper' })) as { token: string }).token;
   return { board, server, admin: await login('anton'), viewer: await login('vic'), agentToken };
 }
-const upload = (url: string, headers: Record<string, string>, bytes: Buffer) => fetch(`${url}/api/images`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...headers }, body: bytes });
+const upload = (url: string, headers: Record<string, string>, bytes: Buffer) => fetch(`${url}/api/images`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', ...headers }, body: new Uint8Array(bytes) });
 
 test('a person pastes an image: it is kept by what its bytes are, and served inert to whoever is signed in', async () => {
   const { server, admin, viewer, agentToken } = await setup();

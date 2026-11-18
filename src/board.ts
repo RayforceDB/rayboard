@@ -226,7 +226,10 @@ export function openBoard(options: BoardOptions): Board {
 
   const agentView = (a: Row): Row => {
     const { token: _token, ...rest } = a;
-    return { ...rest, online: Date.now() - (seen.get(a.id as string) ?? 0) < ONLINE_MS ? 1 : 0 };
+    const last = seen.get(a.id as string) ?? 0;
+    // Online: it asked something in the last two minutes. An agent at work may go quiet for longer, writing code
+    // between two calls; when it last asked is given too, so that working and gone can be told apart.
+    return { ...rest, online: Date.now() - last < ONLINE_MS ? 1 : 0, last_seen: last === 0 ? '' : new Date(last).toISOString() };
   };
   const userView = (u: Row): Row => ({ id: u.id!, name: u.name!, status: u.status!, role: roleOf(u), about: u.about ?? '', avatar: u.avatar ? `/api/avatars/${u.id}/${u.avatar}` : '', created: u.created! });
   const actorOfAgent = (a: Row): Actor => ({ id: a.id as string, kind: 'agent', name: a.name as string, status: a.status as string, reason: a.reason as string });

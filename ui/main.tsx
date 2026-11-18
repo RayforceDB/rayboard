@@ -5,7 +5,7 @@ import { Agents } from './agents';
 import { People } from './people';
 import { Chat } from './chat';
 import { Icon, type IconName } from './icons';
-import { AgentStrip, Avatar, Badge, BoardContext, mayDecide, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
+import { AgentStrip, Avatar, agentState, Badge, BoardContext, mayDecide, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
 import { Settings } from './settings';
@@ -153,7 +153,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
               <button key={a.id} onClick={() => open('chat', `dm:${[me.id, a.id].sort().join(':')}`)} title={a.about || a.kind}>
                 <Avatar id={a.id} size={24} />
                 <span className="grow">{a.name}</span>
-                {a.status !== 'active' ? <span className="state">{a.status}</span> : <i className={`dot ${a.online ? 'on' : ''}`} title={a.online ? 'online' : 'offline'} />}
+                {a.status !== 'active' ? <span className="state">{a.status}</span> : <i className={`dot ${agentState(board, a).tone === 'off' ? '' : 'on'}`} title={agentState(board, a).label} />}
               </button>
             ))}
           </div>
