@@ -491,7 +491,11 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             {d.evidence.length === 0 && <p className="muted">Nothing is attached yet.</p>}
             <ul className="list plain">
               {d.evidence.map((e) => (
-                <li key={e.id}><span className={`badge ${e.kind === 'external_action' ? 's-waiting' : ''}`}>{e.kind === 'external_action' ? `done outside: ${e.key}` : 'evidence'}</span><span className="grow wraps">{e.text}</span><Who id={e.author} /><time>{clock(e.ts)}</time></li>
+                <li key={e.id} className="proof">
+                  {/* What, who and when on one line; the evidence itself below at full width, rendered like a message (links, code, images). */}
+                  <div className="row"><span className={`badge ${e.kind === 'external_action' ? 's-waiting' : ''}`}>{e.kind === 'external_action' ? `done outside: ${e.key}` : 'evidence'}</span><Who id={e.author} size={20} /><span className="grow" /><time>{clock(e.ts)}</time></div>
+                  <Prose>{e.text}</Prose>
+                </li>
               ))}
             </ul>
             {live && (

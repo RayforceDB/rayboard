@@ -562,3 +562,9 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 .conversations .duo { flex: none; display: inline-flex; }
 .conversations .duo > * + * { margin-left: -7px; box-shadow: 0 0 0 2px var(--bg, #faf8f6); border-radius: 50%; }
 .deactivated { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; }
+
+/* Evidence (Anton: the text was squeezed to one letter a line beside its author): a head line, then the text at full width. */
+.list.plain li.proof { display: grid; gap: 6px; align-items: start; }
+.list.plain li.proof > .row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.list.plain li.proof > .row .grow { flex: 1 1 0; }
+.list.plain li.proof .prose, .list.plain li.proof > div:last-child { min-width: 0; overflow-wrap: anywhere; }
