@@ -9,6 +9,7 @@ import { AgentStrip, Avatar, Badge, BoardContext, mayDecide, Brand, BuiltOn, Emp
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
 import { NONE, projectsOf, useProject } from './projects';
+import { ProjectMark } from './marks';
 import { Profile } from './profile';
 import { unreadCount, useUnread } from './unread';
 import { listenToRoute, parseRoute, routeHash } from './route';
@@ -290,7 +291,7 @@ function Projects({ board, onOpen }: { board: { tasks: Row[] }; onOpen: () => vo
       <button className={project === '' ? 'on' : ''} onClick={() => choose('')}><span className="grow">All projects</span></button>
       {projects.map((p) => (
         <button key={p.name} className={project === p.name ? 'on' : ''} onClick={() => choose(p.name)} title={`${p.open} still going on of ${p.total}`}>
-          <span className="grow">{p.name}</span><span className="n" aria-label={`${p.open} open`}>{p.open}</span>
+          <ProjectMark name={p.name} size={20} /><span className="grow">{p.name}</span><span className="n" aria-label={`${p.open} open`}>{p.open}</span>
         </button>
       ))}
       {board.tasks.some((t) => !t.project) && <button className={project === NONE ? 'on' : ''} onClick={() => choose(NONE)}><span className="grow unfiled">Tasks without a project</span></button>}

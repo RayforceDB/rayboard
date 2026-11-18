@@ -6,6 +6,7 @@ import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
 import { NONE, inProject, projectsOf, useProject } from './projects';
+import { GithubMark, ProjectMark, TaskNumber, useShownTitle } from './marks';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -90,8 +91,8 @@ export function Tasks({ item }: { item: string }) {
           <h3><span className={`lane-dot s-${lane.key}`} aria-hidden="true" />{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(scope || (project !== NONE ? project : '') || true)}><Icon name="plus" /></button>}</h3>
           {lane.tasks.map((t) => (
             <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task s-${t.status} ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
-              <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}</span>
-              <b>{t.title}</b>
+              <span className="row"><TaskNumber t={t} /><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}</span>
+              <b><Title t={t} /></b>
               <Tags t={t} project={tagProject} />
               <GithubTag id={t.id as string} />
               <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
@@ -138,7 +139,7 @@ export function Tasks({ item }: { item: string }) {
           {group === 'status' && kanban(lanes, '')}
           {group === 'project' && byProject.map((g) => (
             <section key={g.key || NONE} className={`project-swim ${g.key ? '' : 'unfiled'}`} aria-label={g.key ? `Project ${g.label}` : g.label}>
-              <h2>{g.key && <Icon name="board" size={18} />}{g.label}<span className="count-pill" title={`${g.open} still going on of ${g.tasks.length}`}>{g.open}</span></h2>
+              <h2>{g.key && <ProjectMark name={g.key} size={22} />}{g.label}<span className="count-pill" title={`${g.open} still going on of ${g.tasks.length}`}>{g.open}</span></h2>
               {kanban(lanesOf(g.tasks), g.key)}
             </section>
           ))}
@@ -149,12 +150,12 @@ export function Tasks({ item }: { item: string }) {
           <div className="groups">
             {(group === 'status' ? lanes.filter((g) => g.total > 0) : byProject.map((g) => ({ ...g, total: g.open }))).map((g) => (
               <section key={g.key || NONE}>
-                <h3 className={group === 'project' && !g.key ? 'unfiled' : ''}>{group === 'status' ? <span className={`lane-dot s-${g.key}`} aria-hidden="true" /> : g.key ? <Icon name="board" size={16} /> : null}{g.label}<span className="count-pill">{g.total}</span></h3>
+                <h3 className={group === 'project' && !g.key ? 'unfiled' : ''}>{group === 'status' ? <span className={`lane-dot s-${g.key}`} aria-hidden="true" /> : g.key ? <ProjectMark name={g.key} size={18} /> : null}{g.label}<span className="count-pill">{g.total}</span></h3>
                 {g.tasks.map((t) => (
                   <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
-                    <code>{t.id}</code>
-                    <span className="title">{t.title}</span>
-                    {tagProject && t.project && <span className="tag project-tag">{t.project}</span>}
+                    <TaskNumber t={t} />
+                    <span className="title"><Title t={t} /></span>
+                    {tagProject && t.project && <span className="tag project-tag"><ProjectMark name={t.project as string} size={14} />{t.project}</span>}
                     {unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}
                     {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
                     {mine.has(t.id) && <span className="ask inline"><Icon name="alert" />your input</span>}
@@ -185,16 +186,21 @@ export function GithubTag({ id }: { id: string }) {
   const g = (board.github ?? []).find((x) => x.task === id);
   if (!g) return null;
   const short = String(g.repo).split('/').pop();
-  return <a className={`gh-tag gh-${g.state}`} href={g.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} title={`On GitHub: ${g.kind === 'pr' ? 'pull request' : 'issue'} by @${g.author}, ${g.state}`}>
-    GitHub {short}#{g.number} · {g.state}
+  return <a className={`gh-tag gh-${g.state}`} href={g.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} title={`Open ${short}#${g.number} on GitHub: ${g.kind === 'pr' ? 'pull request' : 'issue'} by @${g.author}`}>
+    <GithubMark size={12} />{g.kind === 'pr' ? 'PR' : 'Issue'} {g.state}
   </a>;
+}
+
+/** A task's title as shown: a GitHub task's repo#number is its number, so it is not said twice. */
+function Title({ t }: { t: Row }) {
+  return <>{useShownTitle(t)}</>;
 }
 
 function Tags({ t, project = false }: { t: Row; project?: boolean }) {
   if (!t.parent && t.private !== 1 && !(project && t.project)) return null;
   return (
     <span className="tags">
-      {project && t.project && <span className="tag project-tag">{t.project}</span>}
+      {project && t.project && <span className="tag project-tag"><ProjectMark name={t.project as string} size={14} />{t.project}</span>}
       {t.parent && <span className="tag"><Icon name="subtask" size={14} />in {t.parent}</span>}
       {t.private === 1 && <span className="tag"><Icon name="lock" size={14} />Private</span>}
     </span>
@@ -319,7 +325,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       </header>
       <div className="drawer-scroll">
         <div className="drawer-head">
-          <h2>{t.title}</h2>
+          <h2><Title t={t} /></h2>
           <StatusPill status={t.status} />
           <GithubTag id={t.id as string} />
           {!live && me.role !== 'viewer' && <button onClick={run('reopen_task')}><Icon name="reopen" />Reopen task</button>}
@@ -330,7 +336,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <Prio level={t.priority} />
             {t.private === 1 && <><i className="sep" /><span className="muted"><Icon name="lock" />Private</span></>}
             {t.parent && <><i className="sep" /><button className="link" onClick={() => open('tasks', t.parent)}>in {t.parent}</button></>}
-            {t.project && <><i className="sep" /><span className="tag project-tag" title="Project">{t.project}</span></>}
+            {t.project && <><i className="sep" /><span className="tag project-tag" title="Project"><ProjectMark name={t.project as string} size={14} />{t.project}</span></>}
           </div>
           {(t.body || t.outcome) && <Prose className="lead">{t.body || t.outcome}</Prose>}
           {t.dependency && (
@@ -470,7 +476,7 @@ function ProjectField({ t }: { t: Row }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState((t.project as string | undefined) ?? '');
   const may = me.role !== 'viewer' && (me.kind === 'user' || t.creator === me.id || t.assignee === me.id) && (me.kind === 'user' || (t.status !== 'done' && t.status !== 'cancelled'));
-  if (!editing) return <span className="row">{t.project ? <span className="tag project-tag">{t.project}</span> : <span className="muted">none</span>}{may && <button className="ghost small" onClick={() => { setValue((t.project as string | undefined) ?? ''); setEditing(true); }}>Change</button>}</span>;
+  if (!editing) return <span className="row">{t.project ? <span className="tag project-tag"><ProjectMark name={t.project as string} size={14} />{t.project}</span> : <span className="muted">none</span>}{may && <button className="ghost small" onClick={() => { setValue((t.project as string | undefined) ?? ''); setEditing(true); }}>Change</button>}</span>;
   const save = async (): Promise<void> => {
     const next = value.trim();
     if (next === ((t.project as string | undefined) ?? '')) { setEditing(false); return; }
