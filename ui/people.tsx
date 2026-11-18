@@ -53,26 +53,20 @@ function Role({ user, onClose }: { user: Row; onClose: () => void }) {
   return <Modal title={`Access for ${user.name}`} onClose={onClose}><Form submit="Change role" onSubmit={async () => { if (await act(() => api.call('set_role', { user: user.id, role }))) onClose(); }}><Field label="Role" hint="A change applies to existing sessions immediately. The last administrator cannot be demoted."><select value={role} onChange={(e) => setRole(e.target.value)} autoFocus><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></Field></Form></Modal>;
 }
 
-/** GitHub (T-19): which repositories come in as tasks, and the App the board reads them through. Read only. */
+/**
+ * GitHub (T-19): the App the board reads through, and the repositories it follows. Those are chosen in one
+ * place, the App's installation on GitHub; here they are only shown.
+ */
 function Github() {
   const { act, tick } = useCtx();
   const [status, setStatus] = useState<Row | null>(null);
-  const [repos, setRepos] = useState('');
   const [owner, setOwner] = useState('RayforceDB');
-  const load = (): void => void api.call('github_status').then((s: Row) => { setStatus(s); setRepos((r) => r || (s.repos as Row[]).map((x) => x.name).join(' ') || 'RayforceDB/rayforce RayforceDB/rayforce-q RayforceDB/rayforce-rs'); }, () => setStatus(null));
+  const load = (): void => void api.call('github_status').then(setStatus, () => setStatus(null));
   useEffect(load, [tick]);
   if (status === null) return null;
   const connected = status.connected as Row | null;
   const problems = ((status.app as Row | null)?.problems as string[] | undefined) ?? [];
   const followed = (status.repos as Row[]).map((r) => r.name as string);
-  /** Where the App is installed but the board does not look: one click follows them, or the list says to narrow the install. */
-  const unfollowed = (((status.app as Row | null)?.repos as string[] | undefined) ?? []).filter((name) => !followed.some((f) => f.toLowerCase() === name.toLowerCase()));
-  const follow = (names: string[]): Promise<boolean> => act(async () => {
-    await api.call('set_github_repos', { repos: [...followed, ...names].join(' ') });
-    setRepos([...followed, ...names].join(' '));
-    await api.githubSync();
-    load();
-  });
   // GitHub creates the App from a manifest posted by the browser itself; the board then keeps its key and secret.
   const connect = (): Promise<boolean> => act(async () => {
     const started = await api.githubConnect(owner);
@@ -90,25 +84,18 @@ function Github() {
   return (
     <section className="panel">
       <h3>GitHub</h3>
-      <p className="muted">Issues and pull requests of these repositories come in as tasks. Nothing is written to GitHub; conversations with people stay there.</p>
-      <Form submit="Save repositories" onSubmit={() => act(async () => { await api.call('set_github_repos', { repos: repos.trim() || 'none' }); load(); })}>
-        <Field label="Repositories" hint="owner/name, separated by spaces"><input value={repos} onChange={(e) => setRepos(e.target.value)} spellCheck={false} /></Field>
-      </Form>
+      <p className="muted">Issues and pull requests of the repositories the App is installed on come in as tasks, one project per repository. Nothing is written to GitHub; conversations with people stay there.</p>
       {connected === null ? (
         <div className="row"><Field label="Organisation"><input value={owner} onChange={(e) => setOwner(e.target.value)} spellCheck={false} /></Field><span className="grow" /><button className="primary" onClick={() => void connect()}>Connect GitHub</button></div>
       ) : (
         <>
-          <p>Connected as <a href={connected.html_url as string} target="_blank" rel="noreferrer noopener">{connected.slug as string}</a> in {connected.owner as string}. <a href={`${connected.html_url as string}/installations/new`} target="_blank" rel="noreferrer noopener">Choose repositories on GitHub</a></p>
+          <p>Connected as <a href={connected.html_url as string} target="_blank" rel="noreferrer noopener">{connected.slug as string}</a> in {connected.owner as string}.</p>
+          <div className="gh-followed">
+            <div className="row"><b>Followed repositories</b><span className="grow" /><a className="button small" href={`${connected.html_url as string}/installations/new`} target="_blank" rel="noreferrer noopener">Choose on GitHub</a></div>
+            {followed.length === 0 ? <p className="muted">None yet. Choose them on GitHub, then Check now.</p> : <ul className="list plain">{followed.map((name) => <li key={name}><code>{name}</code></li>)}</ul>}
+            <p className="muted small-print">To follow another repository, add it to the App's installation on GitHub; to stop, take it out there. The board picks the change up within ten minutes, or at once with Check now.</p>
+          </div>
           {problems.length > 0 ? <ul className="error">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : status.app ? <p className="muted">Permissions and repositories checked {new Date((status.app as Row).checked as string).toLocaleString()}.</p> : <p className="muted">Not checked yet.</p>}
-          {unfollowed.length > 0 && (
-            <div className="gh-unfollowed">
-              <p className="muted">The App can read these, but the board does not follow them yet:</p>
-              <ul className="list plain">
-                {unfollowed.map((name) => <li key={name}><code>{name}</code><span className="grow" /><button className="small" onClick={() => void follow([name])}>Follow</button></li>)}
-              </ul>
-              {unfollowed.length > 1 && <div className="row end"><button className="primary small" onClick={() => void follow(unfollowed)}>Follow all {unfollowed.length}</button></div>}
-            </div>
-          )}
           <div className="row end"><button onClick={() => void act(async () => { await api.githubSync(); load(); })}>Check now</button></div>
         </>
       )}

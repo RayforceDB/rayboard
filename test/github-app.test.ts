@@ -87,7 +87,7 @@ test('an administrator connects GitHub by manifest: a one-time state, secrets ke
   expect((await fetch(`${server.url}/api/github/connect`, { method: 'POST', headers: admin, body: '{}' })).status).toBe(409);
 });
 
-test('reconciliation reads every page, takes each item once, and records the grant', async () => {
+test('reconciliation follows what the App is installed on, reads every page, takes each item once, and records the grant', async () => {
   const fake = fakeGithub({
     repos: [{ id: 101, full_name: 'RayforceDB/rayforce', private: false }, { id: 202, full_name: 'RayforceDB/rayforce-q', private: false }],
     open: [[issue(1, 'one'), issue(2, 'two')], [issue(3, 'three'), issue(4, 'a pull request', { pull_request: { merged_at: null } })]],
@@ -95,38 +95,41 @@ test('reconciliation reads every page, takes each item once, and records the gra
   });
   const { board, server, admin, dir } = await setup(fake);
   const anton = board.firstUser()!;
-  await board.call(anton, 'set_github_repos', { repos: 'RayforceDB/rayforce' });
+  // A list saved by hand before connecting is replaced by the installation at the first check.
+  await board.call(anton, 'set_github_repos', { repos: 'RayforceDB/elsewhere' });
   const started = (await (await fetch(`${server.url}/api/github/connect`, { method: 'POST', headers: admin, body: '{}' })).json()) as { url: string };
   await fetch(`${server.url}/api/github/manifest?code=good-code&state=${new URL(started.url).searchParams.get('state')}`, { redirect: 'manual' });
   expect(existsSync(join(dir, 'app.json'))).toBe(true);
   for (let i = 0; i < 2; i++) expect((await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' })).status).toBe(200);
-  const titles = ((await board.call(anton, 'list_tasks', { status: 'all' })) as { title: string }[]).map((t) => t.title).sort();
-  expect(titles).toEqual(['rayforce#1 one', 'rayforce#2 two', 'rayforce#3 three', 'rayforce#4 a pull request', 'rayforce#5 closed lately']);
-  // Both pages of each list were read, and the installation token was asked for with a signed JWT.
+  const tasks = (await board.call(anton, 'list_tasks', { status: 'all', limit: 100 })) as { title: string; project: string }[];
+  // The fake answers the same items for each repository: both repositories' copies come in, each once, each in its own project.
+  expect(tasks.filter((t) => t.project === 'rayforce').map((t) => t.title).sort()).toEqual(['rayforce#1 one', 'rayforce#2 two', 'rayforce#3 three', 'rayforce#4 a pull request', 'rayforce#5 closed lately']);
+  expect(tasks.filter((t) => t.project === 'rayforce-q')).toHaveLength(5);
   expect(fake.asked.some((a) => a.includes('/installation/repositories') && a.includes('page=2'))).toBe(true);
   expect(fake.asked.some((a) => a.includes('state=open') && a.includes('page=2'))).toBe(true);
-  const status = (await board.call(anton, 'github_status', {})) as { repos: { name: string; id: string }[]; app: { problems: string[]; permissions: Record<string, string> } };
-  // Installed on rayforce-q too, which the board does not follow: said, not hidden.
-  expect(status.app.problems).toEqual([expect.stringContaining('also installed on 1 repository the board does not follow (RayforceDB/rayforce-q)')]);
-  expect(status.repos).toEqual([{ name: 'RayforceDB/rayforce', id: '101' }]);
+  expect(fake.asked.some((a) => a.includes('/repos/RayforceDB/elsewhere/'))).toBe(false);
+  const status = (await board.call(anton, 'github_status', {})) as { repos: { name: string; id: string }[]; app: { problems: string[] } };
+  expect(status.app.problems).toEqual([]);
+  expect(status.repos).toEqual([{ name: 'RayforceDB/rayforce', id: '101' }, { name: 'RayforceDB/rayforce-q', id: '202' }]);
   expect(JSON.stringify(status)).not.toContain('ghs_x');
+  const events = (await board.call(anton, 'activity', { limit: 200 })) as { type: string; summary: string }[];
+  expect(events.filter((e) => e.type === 'github.repos' && e.summary.startsWith('Following'))).toHaveLength(1);
 });
 
-test('a grant missing a permission or a followed repository is a configuration problem an administrator can see', async () => {
+test('a grant missing a permission is a configuration problem an administrator can see', async () => {
   const fake = fakeGithub({ permissions: { metadata: 'read', issues: 'read', pull_requests: 'read', checks: 'read' } });
   const { board, server, admin } = await setup(fake);
   const anton = board.firstUser()!;
-  await board.call(anton, 'set_github_repos', { repos: 'RayforceDB/rayforce RayforceDB/rayforce-rs' });
   const started = (await (await fetch(`${server.url}/api/github/connect`, { method: 'POST', headers: admin, body: '{}' })).json()) as { url: string };
   await fetch(`${server.url}/api/github/manifest?code=good-code&state=${new URL(started.url).searchParams.get('state')}`, { redirect: 'manual' });
   await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
   const status = (await board.call(anton, 'github_status', {})) as { app: { problems: string[] } };
-  expect(status.app.problems).toEqual(['the App lacks issues: write', 'the App is not installed on RayforceDB/rayforce-rs']);
+  expect(status.app.problems).toEqual(['the App lacks issues: write']);
 });
 
-test('an App installed beyond the followed repositories, or a board following none, is flagged', async () => {
+test('an App installed on no repository is flagged; repositories are otherwise never a problem, since they are chosen on GitHub', async () => {
   const { missing } = await import('../src/github');
-  const grant = { installation: '1', permissions: { metadata: 'read', issues: 'write', pull_requests: 'read', checks: 'read' }, repos: [{ id: '1', name: 'RayforceDB/rayforce', private: false }, { id: '2', name: 'RayforceDB/website', private: false }] };
-  expect(missing(grant, ['RayforceDB/rayforce'])).toEqual([expect.stringContaining('also installed on 1 repository the board does not follow (RayforceDB/website)')]);
-  expect(missing(grant, [])).toContain('no repositories are followed yet: save the list of repositories');
+  const permissions = { metadata: 'read', issues: 'write', pull_requests: 'read', checks: 'read' };
+  expect(missing({ installation: '1', permissions, repos: [] })).toEqual(['the App is installed on no repositories: choose them in its installation on GitHub']);
+  expect(missing({ installation: '1', permissions, repos: [{ id: '1', name: 'RayforceDB/rayforce', private: false }, { id: '2', name: 'RayforceDB/website', private: false }] })).toEqual([]);
 });

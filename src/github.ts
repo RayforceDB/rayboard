@@ -148,19 +148,17 @@ export interface Grant {
 
 const NEEDED: Record<string, string[]> = { metadata: ['read', 'write'], issues: ['write'], pull_requests: ['read', 'write'], checks: ['read', 'write'] };
 
-/** What is missing from a grant, in words an administrator can act on; empty when nothing is. */
-export function missing(grant: Grant, followed: string[]): string[] {
+/**
+ * What is missing from a grant, in words an administrator can act on; empty when nothing is.
+ * Which repositories the board follows is chosen in one place, the App's installation on GitHub, so the
+ * only thing to say about repositories is that there are none.
+ */
+export function missing(grant: Grant): string[] {
   const out: string[] = [];
   for (const [name, ok] of Object.entries(NEEDED)) {
     if (!ok.includes(grant.permissions[name] ?? '')) out.push(`the App lacks ${name}: ${ok[0]}`);
   }
-  for (const name of followed) {
-    if (!grant.repos.some((r) => r.name.toLowerCase() === name.toLowerCase())) out.push(`the App is not installed on ${name}`);
-  }
-  if (followed.length === 0) out.push('no repositories are followed yet: save the list of repositories');
-  // More than it needs: the App may write issues wherever it is installed, so it should be installed only where followed.
-  const extra = grant.repos.filter((r) => !followed.some((name) => name.toLowerCase() === r.name.toLowerCase()));
-  if (extra.length > 0) out.push(`the App is also installed on ${extra.length} ${extra.length === 1 ? 'repository' : 'repositories'} the board does not follow (${extra.slice(0, 5).map((r) => r.name).join(', ')}${extra.length > 5 ? ', …' : ''}): add them to the board's list of repositories to follow them, or remove them from the App's installation`);
+  if (grant.repos.length === 0) out.push('the App is installed on no repositories: choose them in its installation on GitHub');
   return out;
 }
 

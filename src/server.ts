@@ -87,8 +87,9 @@ export function startServer(o: ServerOptions): Server {
     syncing = true;
     try {
       const grant = await github.grant();
+      // The board follows what the App is installed on: one place to choose, on GitHub.
+      o.board.githubGrant(grant, missing(grant));
       const followed = o.board.githubFollowed();
-      o.board.githubGrant(grant, missing(grant, followed.map((r) => r.name)));
       // Open items, and those closed in the last thirty days: the cutoff is fixed for the whole pass.
       const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
       for (const r of followed) {

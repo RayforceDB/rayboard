@@ -1109,7 +1109,7 @@ export function openBoard(options: BoardOptions): Board {
       },
     },
     set_github_repos: {
-      description: 'Which GitHub repositories the board follows (owner/name, separated by spaces). Their issues and pull requests come in as tasks; nothing is written to GitHub.',
+      description: 'Which GitHub repositories the board follows (owner/name, separated by spaces), until the GitHub App is connected: from then on the board follows exactly what the App is installed on, chosen on GitHub, and every check replaces this list.',
       who: 'user', mutates: true, admin: true,
       params: { repos: str('owner/name of each repository, separated by spaces; "none" for none.', 2000, true) },
       run(actor, p) {
@@ -1451,15 +1451,21 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     githubFollowed: () => followed(),
     githubGrant(grant, problems) {
       const at = now().toISOString();
-      // Followed names learn their ids from the grant, so a later rename on GitHub keeps them.
-      const list = followed().map((r) => (r.id !== '' ? r : { ...r, id: grant.repos.find((g) => g.name.toLowerCase() === r.name.toLowerCase())?.id ?? '' }));
+      // What the App is installed on is what the board follows, by id, so a rename on GitHub keeps it.
+      // A repository taken out of the installation is no longer followed; its tasks stay as they are.
+      const list = grant.repos.map((r) => ({ name: r.name, id: r.id })).sort((x, y) => x.name.localeCompare(y.name));
       const stable = { installation: grant.installation, permissions: grant.permissions, repos: grant.repos.map((r) => r.name), problems };
       let before: Record<string, unknown> = {};
       try { before = JSON.parse(store.get('settings', 'github.app')?.value as string ?? '{}') as Record<string, unknown>; } catch { before = {}; }
       const { checked: _checked, ...was } = before;
       // A check that finds what the last one found writes nothing: it runs every ten minutes.
-      if (JSON.stringify(was) === JSON.stringify(stable) && JSON.stringify(list) === JSON.stringify(followed())) return;
+      const known = followed();
+      if (JSON.stringify(was) === JSON.stringify(stable) && JSON.stringify(list) === JSON.stringify(known)) return;
       const value = JSON.stringify({ ...stable, checked: at });
+      const names = (l: { name: string }[]) => l.map((r) => r.name.toLowerCase()).sort().join(' ');
+      if (names(list) !== names(known)) {
+        commit('github.repos', 'github', 'github.repos', `Following the repositories the GitHub App is installed on: ${list.map((r) => r.name).join(' ') || 'none'}`, { settings: [{ id: 'github.repos', value: JSON.stringify(list) }] });
+      }
       commit('github.grant', 'github', 'github.app', problems.length === 0 ? 'GitHub App grant checked' : `GitHub App grant checked: ${problems.join('; ')}`,
         { settings: [{ id: 'github.app', value }, { id: 'github.repos', value: JSON.stringify(list) }] }, [], problems.length === 0);
     },
