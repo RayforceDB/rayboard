@@ -72,6 +72,10 @@ export interface Board {
   /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
   clearAvatar(user: string): void;
   avatar(user: string): { bytes: Buffer; type: string; id: string } | null;
+  /** Keeps an image pasted into text and answers where it is served (T-447). PNG, JPEG, GIF or WebP, told by its bytes. */
+  putImage(actor: Actor, bytes: Buffer): { id: string; url: string; type: string; size: number };
+  /** An image's bytes and type, by its id; null when there is none. */
+  image(id: string): { bytes: Buffer; type: string } | null;
   setAgentAvatar(actor: Actor, user: string, bytes: Buffer, type: string): string;
   clearAgentAvatar(actor: Actor, user: string): void;
   /** An agent asks to join with the enrollment key. It gets a token at once and can do nothing until a person approves it. */
@@ -142,6 +146,19 @@ export interface BoardOptions {
   /** A `journal.jsonl` of the first version of rayboard, taken over once when the board at `base` is empty. */
   legacy?: string;
   now?: () => Date;
+}
+
+/** The largest image the board keeps (T-447). */
+export const IMAGE_MAX = 5 * 1024 * 1024;
+
+/** What an image is, from its first bytes alone: a name or a declared type is never trusted. */
+export function imageType(bytes: Buffer): string | null {
+  const starts = (sig: number[], at = 0): boolean => bytes.length >= at + sig.length && sig.every((b, i) => bytes[at + i] === b);
+  if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+  if (starts([0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (starts([0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) || starts([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])) return 'image/gif';
+  if (starts([0x52, 0x49, 0x46, 0x46]) && starts([0x57, 0x45, 0x42, 0x50], 8)) return 'image/webp';
+  return null;
 }
 
 export function openBoard(options: BoardOptions): Board {
@@ -1344,6 +1361,25 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       commit('agent.avatar_cleared', actor.id, target, row.name + ' removed their avatar', { agents: [{ ...row, avatar: '', avatar_type: '' }] });
       const old = row.avatar as string;
       if (old && store.all('users').every((u) => u.avatar !== old) && store.all('agents').every((a) => a.avatar !== old)) unlinkSync(join(dirname(options.base), 'avatars', old));
+    },
+    putImage(actor, bytes) {
+      if (actor.role === 'viewer') bad('forbidden', 'a viewer reads the board and does not add to it');
+      const type = imageType(bytes) ?? bad('invalid', 'an image is a PNG, JPEG, GIF or WebP file');
+      if (bytes.length > IMAGE_MAX) bad('invalid', `an image may be up to ${IMAGE_MAX / 1024 / 1024} MB`);
+      // Not named by its content: whoever knows an image must not learn whether someone else pasted it too.
+      const id = randomBytes(24).toString('hex');
+      const path = join(dirname(options.base), 'images', id);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
+      commit('image.added', actor.id, id, '', { images: [{ id, type, size: bytes.length, by: actor.id, created: now().toISOString() }] }, [], true);
+      return { id, url: `/api/images/${id}`, type, size: bytes.length };
+    },
+    image(id) {
+      if (!/^[a-f0-9]{48}$/.test(id)) return null;
+      const row = store.get('images', id);
+      const path = join(dirname(options.base), 'images', id);
+      if (row === null || !existsSync(path)) return null;
+      return { bytes: readFileSync(path), type: row.type as string };
     },
     avatar(user) {
       const row = store.get('users', user) ?? store.get('agents', user);

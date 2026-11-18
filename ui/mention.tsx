@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Avatar, useCtx } from './kit';
 import type { Row } from './api';
+import { imageHandlers } from './images';
 
 /** The currently typed @name and where it starts. Email and @@ are not mentions. */
 export type CompletionKind = 'mention' | 'channel';
@@ -25,8 +26,9 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
   placeholder: string;
   ariaLabel?: string;
 }) {
-  const { board, me } = useCtx();
+  const { board, me, act } = useCtx();
   const input = useRef<HTMLTextAreaElement>(null);
+  const images = imageHandlers(value, onChange, act);
   const [caret, setCaret] = useState(value.length);
   const [picked, setPicked] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -70,7 +72,7 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
   const optionId = (i: number): string => `mention-option-${i}`;
   const label = active?.kind === 'channel' ? 'Choose a channel' : 'Mention a participant';
   return <div className="mention">
-    <textarea ref={input} value={value} onChange={(e) => { onChange(e.target.value); setCaret(e.target.selectionStart); setDismissed(false); setPicked(0); }} onSelect={(e) => setCaret(e.currentTarget.selectionStart)} onKeyDown={key} onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)} onClick={(e) => setCaret(e.currentTarget.selectionStart)} rows={2} placeholder={placeholder} aria-label={ariaLabel} disabled={disabled} role="combobox" aria-autocomplete="list" aria-expanded={Boolean(active && candidates.length)} aria-controls="mention-options" aria-activedescendant={active && candidates.length ? optionId(picked % candidates.length) : undefined} />
+    <textarea ref={input} value={value} {...images} onChange={(e) => { onChange(e.target.value); setCaret(e.target.selectionStart); setDismissed(false); setPicked(0); }} onSelect={(e) => setCaret(e.currentTarget.selectionStart)} onKeyDown={key} onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)} onClick={(e) => setCaret(e.currentTarget.selectionStart)} rows={2} placeholder={placeholder} aria-label={ariaLabel} disabled={disabled} role="combobox" aria-autocomplete="list" aria-expanded={Boolean(active && candidates.length)} aria-controls="mention-options" aria-activedescendant={active && candidates.length ? optionId(picked % candidates.length) : undefined} />
     {active && candidates.length > 0 && <div className="mention-list" id="mention-options" role="listbox" aria-label={label}>
       {candidates.map((p, i) => <button type="button" id={optionId(i)} role="option" aria-selected={i === picked % candidates.length} key={p.id} className={i === picked % candidates.length ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(p)}>
           {active.kind === 'channel' ? <span className="channel-mark" aria-hidden="true">#</span> : p.id === '@all' ? <span className="all-mark" aria-hidden="true">@</span> : <Avatar id={p.id} size={28} />}

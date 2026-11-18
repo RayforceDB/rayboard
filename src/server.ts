@@ -18,6 +18,8 @@ const SESSION_MS = 7 * 86_400_000;
 const BODY_MAX = 256 * 1024;
 const AVATAR_MAX = 1 * 1024 * 1024;
 const AGENT_AVATAR_MAX = 1_500_000;
+/** An image pasted into text; a little over the board's own limit, which says no in words. */
+const IMAGE_BODY_MAX = 5 * 1024 * 1024 + 64 * 1024;
 const STATUS: Record<ErrorCode, number> = { invalid: 400, unauthorized: 401, forbidden: 403, paused: 403, not_found: 404, conflict: 409 };
 const TYPES: Record<string, string> = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml', map: 'application/json', ico: 'image/x-icon', png: 'image/png', woff2: 'font/woff2' };
 
@@ -212,7 +214,7 @@ export function startServer(o: ServerOptions): Server {
     hostname: o.host,
     port: o.port,
     ...(o.tls ? { tls: { cert: Bun.file(o.tls.cert), key: Bun.file(o.tls.key) } } : {}),
-    maxRequestBodySize: AGENT_AVATAR_MAX,
+    maxRequestBodySize: IMAGE_BODY_MAX,
     // An inbox may wait 50 seconds for something to arrive.
     idleTimeout: 90,
     async fetch(req, srv) {
@@ -355,6 +357,23 @@ export function startServer(o: ServerOptions): Server {
             const actor = who(req);
             if (actor instanceof Response) return actor;
             return json(200, { ok: true, actions: Object.fromEntries(Object.entries(board.actions).filter(([, a]) => a.who === 'any' || a.who === actor.kind).map(([name, a]) => [name, { description: a.description, params: a.params }])) });
+          }
+          // Images pasted into text (T-447): only for those signed in or holding an agent token, and only by the
+          // unguessable id that the text they may read carries; served inert, never as anything but an image.
+          const image = /^\/api\/images\/([a-f0-9]{48})$/.exec(path);
+          if (image && req.method === 'GET') {
+            if (sessionOf(req) === null && (bearer(req) === null || board.agentOfToken(bearer(req)!) === null)) return refuse('unauthorized', 'sign in first');
+            const found = board.image(image[1]!);
+            if (found === null) return refuse('not_found', 'no such image');
+            return new Response(new Uint8Array(found.bytes), { headers: { ...baseHeaders, 'Content-Type': found.type, 'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Disposition': 'inline', 'Cache-Control': 'private, max-age=31536000, immutable' } });
+          }
+          if (path === '/api/images' && req.method === 'POST') {
+            const actor = who(req);
+            if (actor instanceof Response) return actor;
+            const length = Number(req.headers.get('content-length'));
+            if (!Number.isSafeInteger(length) || length < 1 || length > IMAGE_BODY_MAX) return refuse('invalid', 'an image may be up to 5 MB');
+            const bytes = Buffer.from(await req.arrayBuffer());
+            return json(200, { ok: true, result: board.putImage(actor, bytes) });
           }
           const avatar = /^\/api\/avatars\/([a-z0-9_]{2,40})\/([a-f0-9]{64})$/.exec(path);
           if (avatar && req.method === 'GET') {

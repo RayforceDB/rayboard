@@ -62,6 +62,8 @@ export const SCHEMA = {
     keyed: true,
     columns: { id: 'str', repo: 'str', repo_name: 'str', kind: 'sym', number: 'i64', url: 'str', title: 'str', state: 'sym', author: 'str', updated: 'ts', task: 'str' },
   },
+  /** An image pasted into text (T-447): its bytes are a file beside the board named by this unguessable id. */
+  images: { keyed: true, columns: { id: 'str', type: 'sym', size: 'i64', by: 'str', created: 'ts' } },
   /** Every webhook delivery the board took, by GitHub's delivery id: the same delivery twice is applied once. */
   gh_deliveries: { keyed: true, columns: { id: 'str', ts: 'ts', event: 'sym', repo: 'str', result: 'sym' } },
   messages: { keyed: false, columns: { id: 'str', seq: 'i64', ts: 'ts', chan: 'str', kind: 'sym', author: 'str', body: 'str', mentions: 'str' } },

@@ -17,15 +17,21 @@ export function highlightCode(text: string) {
   });
 }
 
+/** An image the board keeps: a path on this origin, never a URL of another. */
+export const OWN_IMAGE = /^\/api\/images\/[a-f0-9]{48}$/;
+
 /** Markdown, not HTML: board text is untrusted, and raw HTML is never rendered. */
 export function Prose({ children, className = '' }: { children: string; className?: string }) {
   return <div className={`prose ${className}`}>
     <Markdown remarkPlugins={[remarkGfm]} components={{
       // A link whose address was refused as unsafe (javascript:, data:…) stays as plain text, not an anchor to the page itself.
       a: ({ children, href, title }) => href ? <a href={href} title={title} target="_blank" rel="noreferrer noopener nofollow">{children}</a> : <span>{children}</span>,
-      // An image would be fetched by every reader's browser the moment the message is shown: a tracker
-      // or a probe of their network. It becomes a link they may choose to open.
-      img: ({ src, alt }) => typeof src === 'string' && src !== '' ? <a className="image-link" href={src} target="_blank" rel="noreferrer noopener nofollow">{alt || src}</a> : <span>{alt}</span>,
+      // An image from elsewhere would be fetched by every reader's browser the moment the message is shown: a
+      // tracker or a probe of their network. It becomes a link they may choose to open. Only an image the board
+      // itself keeps, pasted here (T-447), is shown in place.
+      img: ({ src, alt }) => typeof src === 'string' && OWN_IMAGE.test(src)
+        ? <a className="pasted-image" href={src} target="_blank" rel="noreferrer noopener"><img src={src} alt={alt ?? ''} loading="lazy" /></a>
+        : typeof src === 'string' && src !== '' ? <a className="image-link" href={src} target="_blank" rel="noreferrer noopener nofollow">{alt || src}</a> : <span>{alt}</span>,
       code: ({ className, children }) => {
         const source = String(children ?? '').replace(/\n$/, '');
         return className ? <code className={className} data-language={className.replace(/^language-/, '')}>{highlightCode(source)}</code> : <code>{children}</code>;

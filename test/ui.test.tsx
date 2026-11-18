@@ -26,6 +26,15 @@ test('images are links the reader may open, never fetched by the page; refused l
   expect(links[0]!.children).toEqual(['tracker']);
   expect(JSON.stringify(tree.toJSON())).toContain('bad');
 });
+test('an image the board keeps is shown in place; one from elsewhere, even dressed like it, stays a link (T-447)', async () => {
+  const own = `/api/images/${'a1'.repeat(24)}`;
+  const tree = await render(`![screen](${own}) ![far](https://evil.example${own}) ![dot](/api/images/../avatars/x) ![rel](//evil.example${own})`);
+  const imgs = tree.root.findAllByType('img');
+  expect(imgs.map((i) => i.props.src)).toEqual([own]);
+  expect(imgs[0]!.props.alt).toBe('screen');
+  const links = tree.root.findAllByType('a').map((a) => a.props.href);
+  expect(links).toEqual([own, `https://evil.example${own}`, '/api/images/../avatars/x', `//evil.example${own}`]);
+});
 test('inline code remains compact; GFM tables remain structured', async () => {
   const tree = await render('Use `inbox(through)`.\n\n| A | B |\n|---|---|\n| 1 | 2 |');
   expect(tree.root.findByType('code').props.className).toBeUndefined();

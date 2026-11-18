@@ -46,6 +46,13 @@ export const api = {
     if (!res.ok || !data.ok) { const e = new Error(data?.error?.message ?? 'the upload failed') as Error & { code?: string }; e.code = data?.error?.code; throw e; }
     return data.result;
   },
+  /** Keeps an image pasted into text; answers the path it is served at. */
+  image: async (blob: Blob): Promise<string> => {
+    const res = await fetch('/api/images', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrf }, body: blob });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) { const e = new Error(data?.error?.message ?? (res.status === 413 ? 'the image is too large' : 'the upload failed')) as Error & { code?: string }; e.code = data?.error?.code; throw e; }
+    return data.result.url as string;
+  },
   removeAvatar: () => send('/api/call/remove_avatar', {}),
   password: (current: string, next: string) => send('/api/password', { current, next }),
   call: async <T = any>(action: string, params: Row = {}): Promise<T> => (await send(`/api/call/${action}`, params)).result as T,

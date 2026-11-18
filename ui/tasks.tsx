@@ -7,6 +7,7 @@ import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
 import { NONE, inProject, projectsOf, useProject } from './projects';
 import { GithubMark, ProjectMark, TaskNumber, useShownTitle } from './marks';
+import { imageHandlers } from './images';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -251,8 +252,8 @@ function NewTask({ onClose, parent = '', project = '' }: { onClose: () => void; 
     <Modal title={parent ? `New subtask of ${parent}` : 'New task'} onClose={onClose}>
       <Form onSubmit={submit} submit="Create task">
         <Field label="Title"><input value={f.title} onChange={(e) => set({ title: e.target.value })} maxLength={200} required autoFocus /></Field>
-        <Field label="Outcome" hint="What can be observed when it is done: the thing a reviewer will check."><textarea value={f.outcome} onChange={(e) => set({ outcome: e.target.value })} rows={2} maxLength={2000} required /></Field>
-        <Field label="Description" hint="Everything the one doing it needs: context, where things are."><textarea value={f.body} onChange={(e) => set({ body: e.target.value })} rows={4} maxLength={20000} /></Field>
+        <Field label="Outcome" hint="What can be observed when it is done: the thing a reviewer will check."><textarea value={f.outcome} {...imageHandlers(f.outcome, (outcome) => set({ outcome }), act)} onChange={(e) => set({ outcome: e.target.value })} rows={2} maxLength={2000} required /></Field>
+        <Field label="Description" hint="Everything the one doing it needs: context, where things are."><textarea value={f.body} {...imageHandlers(f.body, (body) => set({ body }), act)} onChange={(e) => set({ body: e.target.value })} rows={4} maxLength={20000} /></Field>
         <Field label="Next action"><input value={f.next} onChange={(e) => set({ next: e.target.value })} maxLength={500} /></Field>
         <Field label="Project" hint="Such as rayforce or rayboard. Leave it empty for none."><ProjectInput value={f.project} onChange={(project) => set({ project })} /></Field>
         <Field label="Participants" hint={`Names separated by spaces. Here: ${[...board.agents.filter((a) => a.status === 'active'), ...board.people].map((a) => a.name).join(', ') || 'nobody yet'}`}><input value={f.participants} onChange={(e) => set({ participants: e.target.value })} maxLength={400} spellCheck={false} /></Field>
@@ -351,7 +352,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               {review.note && <Prose>{review.note}</Prose>}
               {review.requester !== me.id && (
                 <>
-                  <textarea value={verdict} onChange={(e) => setVerdict(e.target.value)} rows={2} placeholder="Your comment (required to request changes)" />
+                  <textarea value={verdict} {...imageHandlers(verdict, setVerdict, act)} onChange={(e) => setVerdict(e.target.value)} rows={2} placeholder="Your comment (required to request changes)" />
                   <div className="row end">
                     <button onClick={() => void act(() => api.call('review_task', { task: t.id, verdict: 'request_changes', comment: verdict })).then((ok) => ok && setVerdict(''))}>Request changes</button>
                     <button className="primary" onClick={() => void act(() => api.call('review_task', { task: t.id, verdict: 'approve', comment: verdict })).then((ok) => ok && setVerdict(''))}>Approve</button>
@@ -438,7 +439,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             {live && (
               <>
                 <h4>Mark done</h4>
-                <textarea value={result} onChange={(e) => setResult(e.target.value)} rows={2} placeholder="What came of it and what shows it" maxLength={20000} />
+                <textarea value={result} {...imageHandlers(result, setResult, act)} onChange={(e) => setResult(e.target.value)} rows={2} placeholder="What came of it and what shows it" maxLength={20000} />
                 <div className="row end"><button className="primary" disabled={result.trim() === ''} onClick={() => void act(() => api.call('complete_task', { task: t.id, result, rev: t.rev })).then((ok) => ok && setResult(''))}><Icon name="check" />Mark done</button></div>
               </>
             )}
