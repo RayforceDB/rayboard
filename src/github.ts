@@ -32,6 +32,39 @@ export interface Item {
   author: string;
   /** When GitHub last changed it: an older delivery never undoes a newer one. */
   updated: string;
+  /** A pull request's head commit, when the delivery says it (T-446). */
+  head?: string;
+  /** The issues of the same repository a pull request says it closes ("Fixes #12"), when its description is given. */
+  closes?: number[];
+}
+
+/** A check run on a commit (T-446): only its outcome, never its log. */
+export interface Check {
+  sha: string;
+  name: string;
+  /** queued, in_progress or completed. */
+  status: string;
+  /** For a completed run: success, failure, neutral, cancelled, skipped, timed_out or action_required. */
+  conclusion: string;
+  /** The pull requests GitHub says it ran for, by number. */
+  prs: number[];
+  at: string;
+}
+
+/** A reviewer's verdict on a pull request (T-446); a later one by the same reviewer replaces it. */
+export interface Review {
+  number: number;
+  login: string;
+  /** approved, changes_requested, commented or dismissed. */
+  state: string;
+  at: string;
+}
+
+/** The issue numbers a pull request's description says it closes, by GitHub's own closing keywords. */
+export function closesIn(body: string): number[] {
+  const out = new Set<number>();
+  for (const m of body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d{1,9})\b/gi)) out.add(Number(m[1]));
+  return [...out].sort((a, b) => a - b);
 }
 
 /** Something a person did on GitHub that whoever holds the task should know of, without its text. */
@@ -47,6 +80,8 @@ export interface Delivery {
   repo: Repo | null;
   item: Item | null;
   ping: Ping | null;
+  check?: Check | null;
+  review?: Review | null;
 }
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -66,6 +101,9 @@ function item(o: Record<string, unknown> | undefined, kind: 'issue' | 'pr'): Ite
     state: o.state === 'open' ? 'open' : merged ? 'merged' : 'closed',
     author: text((o.user as Record<string, unknown> | undefined)?.login),
     updated: text(o.updated_at) || new Date(0).toISOString(),
+    // The issues API describes a pull request without its head; only a pull request's own description has one.
+    ...(kind === 'pr' && typeof (o.head as Record<string, unknown> | undefined)?.sha === 'string' ? { head: text((o.head as Record<string, unknown>).sha) } : {}),
+    ...(kind === 'pr' && typeof o.body === 'string' ? { closes: closesIn(o.body) } : {}),
   };
 }
 
@@ -89,10 +127,20 @@ export function read(event: string, payload: Record<string, unknown>): Delivery 
       return { repo, item: null, ping: issue ? { number: Number(issue.number), login: sender, what: `commented on ${kind === 'pr' ? 'pull request' : 'issue'} #${issue.number}`, url: text(comment?.html_url) || text(issue.html_url) } : null };
     }
     case 'pull_request_review': {
-      if (payload.action !== 'submitted') return { repo, item: null, ping: null };
+      if (payload.action !== 'submitted' && payload.action !== 'synced') return { repo, item: null, ping: null };
       const review = payload.review as Record<string, unknown> | undefined;
       const state = text(review?.state).toLowerCase().replace(/_/g, ' ');
-      return { repo, item: null, ping: pull ? { number: Number(pull.number), login: sender, what: `reviewed pull request #${pull.number}${state ? ` (${state})` : ''}`, url: text(review?.html_url) || text(pull.html_url) } : null };
+      const verdict: Review | null = pull && review ? { number: Number(pull.number), login: text((review.user as Record<string, unknown> | undefined)?.login) || sender, state: text(review.state).toLowerCase(), at: text(review.submitted_at) || new Date(0).toISOString() } : null;
+      // A review read in a reconciliation is a fact, not news: nobody is woken by it.
+      const news = payload.action === 'submitted';
+      return { repo, item: null, review: verdict, ping: news && pull ? { number: Number(pull.number), login: sender, what: `reviewed pull request #${pull.number}${state ? ` (${state})` : ''}`, url: text(review?.html_url) || text(pull.html_url) } : null };
+    }
+    case 'check_run': {
+      const run = payload.check_run as Record<string, unknown> | undefined;
+      const sha = text(run?.head_sha);
+      if (run === undefined || !/^[0-9a-f]{40}$/.test(sha)) return { repo, item: null, ping: null, check: null };
+      const prs = Array.isArray(run.pull_requests) ? (run.pull_requests as Record<string, unknown>[]).map((p) => Number(p.number)).filter(Number.isSafeInteger) : [];
+      return { repo, item: null, ping: null, check: { sha, name: text(run.name) || 'check', status: text(run.status) || 'queued', conclusion: text(run.conclusion), prs, at: text(run.completed_at) || text(run.started_at) || new Date(0).toISOString() } };
     }
     default:
       return { repo, item: null, ping: null };
@@ -228,16 +276,37 @@ export class GithubApp {
     return { installation: t.installation, permissions: t.permissions, repos };
   }
 
-  /** Every open issue and pull request of a repository, and every one closed since the cutoff, as webhook-shaped deliveries. */
-  async *snapshot(repo: { id: string; name: string; private: boolean }, cutoff: string): AsyncGenerator<{ event: string; payload: Record<string, unknown> }> {
+  /**
+   * Every open issue and pull request of a repository, and every one closed since the cutoff, as webhook-shaped
+   * deliveries with the id each is to be taken under. An open pull request comes from the pulls API, which gives
+   * its head and description, followed by its head's check runs and its reviews (T-446).
+   */
+  async *snapshot(repo: { id: string; name: string; private: boolean }, cutoff: string): AsyncGenerator<{ event: string; payload: Record<string, unknown>; id: string }> {
     const t = this.cached !== null && this.cached.until > this.now() ? this.cached : await this.token();
+    const auth = `token ${t.token}`;
     const repository = { id: Number(repo.id), full_name: repo.name, private: repo.private };
     for (const query of ['state=open', `state=closed&since=${encodeURIComponent(cutoff)}`]) {
-      for await (const page of this.pages(`/repos/${repo.name}/issues?${query}&per_page=100`, `token ${t.token}`)) {
+      for await (const page of this.pages(`/repos/${repo.name}/issues?${query}&per_page=100`, auth)) {
         for (const i of page) {
           const pr = i.pull_request as Record<string, unknown> | undefined;
-          if (pr === undefined) yield { event: 'issues', payload: { action: 'synced', issue: i, repository } };
-          else yield { event: 'pull_request', payload: { action: 'synced', pull_request: { ...i, merged_at: pr.merged_at ?? null }, repository } };
+          if (pr === undefined) yield { event: 'issues', payload: { action: 'synced', issue: i, repository }, id: `sync-${repo.id}-${i.number}-${i.updated_at}` };
+          // An open one comes below, whole.
+          else if (i.state !== 'open') yield { event: 'pull_request', payload: { action: 'synced', pull_request: { ...i, merged_at: pr.merged_at ?? null }, repository }, id: `sync-${repo.id}-${i.number}-${i.updated_at}` };
+        }
+      }
+    }
+    for await (const page of this.pages(`/repos/${repo.name}/pulls?state=open&per_page=100`, auth)) {
+      for (const p of page) {
+        yield { event: 'pull_request', payload: { action: 'synced', pull_request: p, repository }, id: `sync-${repo.id}-${p.number}-${p.updated_at}-pr` };
+        const sha = String((p.head as Record<string, unknown> | undefined)?.sha ?? '');
+        if (/^[0-9a-f]{40}$/.test(sha)) {
+          const runs = (await (await this.call(`/repos/${repo.name}/commits/${sha}/check-runs?per_page=100`, auth)).json()) as { check_runs?: Record<string, unknown>[] };
+          for (const run of runs.check_runs ?? []) {
+            yield { event: 'check_run', payload: { action: 'synced', check_run: { ...run, pull_requests: [{ number: p.number }] }, repository }, id: `sync-check-${run.id}-${run.status}-${run.conclusion ?? ''}` };
+          }
+        }
+        for await (const reviews of this.pages(`/repos/${repo.name}/pulls/${p.number}/reviews?per_page=100`, auth)) {
+          for (const r of reviews) yield { event: 'pull_request_review', payload: { action: 'synced', review: r, pull_request: { number: p.number, html_url: p.html_url }, repository }, id: `sync-review-${r.id}-${r.state}` };
         }
       }
     }

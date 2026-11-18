@@ -32,6 +32,18 @@ function fakeGithub(o: { permissions?: Record<string, string>; repos?: { id: num
       const slice = page === 1 ? repos.slice(0, half) : repos.slice(half);
       return reply({ repositories: slice }, page === 1 && repos.length > 1 ? `<https://api.github.com/installation/repositories?per_page=100&page=2>; rel="next"` : undefined);
     }
+    // Open pull requests whole, with their head and description; the head's check runs; the reviews (T-446).
+    const pulls = /^\/repos\/(.+)\/pulls$/.exec(u.pathname);
+    if (pulls) {
+      const all = open.flat().filter((i) => i.pull_request !== undefined).map((i) => ({ ...i, head: { sha: 'a'.repeat(40) }, body: 'Fixes #1' }));
+      return reply(all);
+    }
+    if (/^\/repos\/.+\/commits\/[0-9a-f]{40}\/check-runs$/.test(u.pathname)) {
+      return reply({ check_runs: [{ id: 9, name: 'test', status: 'completed', conclusion: 'success', completed_at: '2026-11-17T10:05:00Z', head_sha: 'a'.repeat(40) }] });
+    }
+    if (/^\/repos\/.+\/pulls\/\d+\/reviews$/.test(u.pathname)) {
+      return reply([{ id: 7, state: 'APPROVED', user: { login: 'mentor' }, submitted_at: '2026-11-17T10:06:00Z' }]);
+    }
     const issues = /^\/repos\/(.+)\/issues$/.exec(u.pathname);
     if (issues) {
       if (u.searchParams.get('state') === 'closed') return reply(o.closed ?? []);
@@ -110,6 +122,11 @@ test('reconciliation follows what the App is installed on, reads every page, tak
   expect(fake.asked.some((a) => a.includes('/repos/RayforceDB/elsewhere/'))).toBe(false);
   const status = (await board.call(anton, 'github_status', {})) as { repos: { name: string; id: string }[]; app: { problems: string[] } };
   expect(status.app.problems).toEqual([]);
+  // An open pull request is read whole: its head, the issue it closes, its checks and its review.
+  const github = ((await board.call(anton, 'dashboard', {})) as { github: { repo: string; number: number; kind: string; checks: string; review: string; closes: number[]; closed_by: number[] }[] }).github;
+  const pr = github.find((g) => g.repo === 'RayforceDB/rayforce' && g.number === 4)!;
+  expect(pr).toMatchObject({ kind: 'pr', checks: 'success', review: 'approved', closes: [1] });
+  expect(github.find((g) => g.repo === 'RayforceDB/rayforce' && g.number === 1)!.closed_by).toEqual([4]);
   expect(status.repos).toEqual([{ name: 'RayforceDB/rayforce', id: '101' }, { name: 'RayforceDB/rayforce-q', id: '202' }]);
   expect(JSON.stringify(status)).not.toContain('ghs_x');
   const events = (await board.call(anton, 'activity', { limit: 200 })) as { type: string; summary: string }[];

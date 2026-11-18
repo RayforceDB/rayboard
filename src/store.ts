@@ -60,8 +60,16 @@ export const SCHEMA = {
   /** An issue or pull request of a followed repository, by <repository id>#<number>, and the task it is worked on as (T-19). */
   gh_items: {
     keyed: true,
-    columns: { id: 'str', repo: 'str', repo_name: 'str', kind: 'sym', number: 'i64', url: 'str', title: 'str', state: 'sym', author: 'str', updated: 'ts', task: 'str' },
+    columns: {
+      id: 'str', repo: 'str', repo_name: 'str', kind: 'sym', number: 'i64', url: 'str', title: 'str', state: 'sym', author: 'str', updated: 'ts', task: 'str',
+      /** A pull request's head commit (sha), the issues it says it closes (numbers, space-separated), and what its checks and reviews come to (T-446). */
+      sha: 'str', closes: 'str', checks: 'sym', review: 'sym',
+    },
   },
+  /** A check run's latest outcome on a commit, by <repository id>#<sha>#<name>. */
+  gh_checks: { keyed: true, columns: { id: 'str', repo: 'str', sha: 'str', name: 'str', status: 'sym', conclusion: 'sym', ts: 'ts' } },
+  /** Each reviewer's latest verdict on a pull request, by <repository id>#<number>#<login>. */
+  gh_reviews: { keyed: true, columns: { id: 'str', repo: 'str', number: 'i64', login: 'str', state: 'sym', ts: 'ts' } },
   /** An image pasted into text (T-447): its bytes are a file beside the board named by this unguessable id. */
   images: { keyed: true, columns: { id: 'str', type: 'sym', size: 'i64', by: 'str', created: 'ts' } },
   /** Every webhook delivery the board took, by GitHub's delivery id: the same delivery twice is applied once. */

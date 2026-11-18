@@ -151,6 +151,9 @@ export interface BoardOptions {
   now?: () => Date;
 }
 
+/** Check run conclusions that mean the checks failed. */
+const FAILED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure']);
+
 /** The largest image the board keeps (T-447). */
 export const IMAGE_MAX = 5 * 1024 * 1024;
 
@@ -1022,7 +1025,11 @@ export function openBoard(options: BoardOptions): Board {
             return t !== null && canSee(actor, t);
           }),
           github: store.all('gh_items').filter((g) => { const t = store.get('tasks', g.task as string); return t !== null && canSee(actor, t); })
-            .map((g) => ({ task: g.task, kind: g.kind, repo: g.repo_name, number: g.number, url: g.url, state: g.state, author: g.author })),
+            .map((g, _i, all) => ({ task: g.task, kind: g.kind, repo: g.repo_name, number: g.number, url: g.url, state: g.state, author: g.author,
+              head: g.sha ?? '', checks: g.checks || 'none', review: g.review || 'none',
+              closes: String(g.closes ?? '').split(' ').filter((n) => n !== '').map(Number),
+              // The pull requests of the same repository that say they close this issue.
+              closed_by: g.kind === 'issue' ? all.filter((p) => p.repo === g.repo && p.kind === 'pr' && String(p.closes ?? '').split(' ').includes(String(g.number))).map((p) => Number(p.number)) : [] })),
           enrollment: (store.get('settings', 'enroll')?.value ?? '') !== '',
           invites: store.all('invites').filter((i) => (i.expires as string) > at).map((i) => ({ id: i.id, role: i.role, created: i.created, expires: i.expires, by: i.by })),
           seq,
@@ -1199,16 +1206,33 @@ export function openBoard(options: BoardOptions): Board {
     }
   };
 
+  /** What a commit's check runs come to (T-446): none, pending while any runs, failure if any failed, else success. */
+  const summarizeChecks = (runs: Row[]): string => {
+    if (runs.length === 0) return 'none';
+    if (runs.some((r) => r.status === 'completed' && FAILED.has(r.conclusion as string))) return 'failure';
+    if (runs.some((r) => r.status !== 'completed')) return 'pending';
+    return 'success';
+  };
+  const checksOf = (repo: string, sha: string): string => (sha === '' ? 'none' : summarizeChecks(store.all('gh_checks').filter((c) => c.repo === repo && c.sha === sha)));
+  /** What a pull request's reviews come to: changes requested by anyone outweighs approval; a dismissed review counts for nothing. */
+  const summarizeReviews = (reviews: Row[]): string => {
+    const live = reviews.filter((r) => r.state !== 'dismissed');
+    if (live.some((r) => r.state === 'changes_requested')) return 'changes_requested';
+    if (live.some((r) => r.state === 'approved')) return 'approved';
+    return live.some((r) => r.state === 'commented') ? 'commented' : 'none';
+  };
+  const reviewOf = (repo: string, number: number): string => summarizeReviews(store.all('gh_reviews').filter((r) => r.repo === repo && Number(r.number) === number));
+
   function githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string } {
     if (broken) throw new Error('the log could not be written; the board accepts nothing until it is restarted');
     if (store.get('gh_deliveries', delivery) !== null) return { result: 'duplicate' };
     const at = now().toISOString();
-    const { repo, item, ping } = readGithub(event, payload);
+    const { repo, item, ping, check = null, review = null } = readGithub(event, payload);
     const list = followed();
     // A repository is followed by its id once known; until then by its name, and the id is kept from then on.
     const entry = repo === null ? undefined : list.find((r) => (r.id !== '' ? r.id === repo.id : r.name.toLowerCase() === repo.name.toLowerCase()));
     const receipt = (result: string): Row => ({ id: delivery, ts: at, event, repo: repo?.id ?? '', result });
-    if (repo === null || entry === undefined || (item === null && ping === null)) {
+    if (repo === null || entry === undefined || (item === null && ping === null && check === null && review === null)) {
       commit('github.ignored', 'github', delivery, '', { gh_deliveries: [receipt('ignored')] }, [], true);
       return { result: 'ignored' };
     }
@@ -1235,13 +1259,18 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
           // Its repository is its project; a person may move it elsewhere later, and GitHub never moves it back.
           project: projectName(short),
         };
-        const g: Row = { id: key, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id };
+        const head = item.head ?? '';
+        const g: Row = { id: key, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id,
+          sha: head, closes: (item.closes ?? []).join(' '), checks: checksOf(repo.id, head), review: reviewOf(repo.id, item.number) };
         commit('github.imported', 'github', t.id as string, `GitHub ${label} came in as ${t.id}: ${clip(item.title)}`, { tasks: [t], gh_items: [g], gh_deliveries: [receipt('applied')], ...settings });
         return { result: 'applied', task: t.id as string };
       }
       const t = store.get('tasks', known.task as string)!;
       const title = clip(`${label} ${item.title}`, 200);
-      const g: Row = { ...known, repo_name: repo.name, url: item.url, title: item.title, state: item.state, updated: item.updated };
+      // A delivery that does not say a head or a description (the issues API) keeps what an earlier one said.
+      const head = item.head ?? (known.sha as string | undefined) ?? '';
+      const g: Row = { ...known, repo_name: repo.name, url: item.url, title: item.title, state: item.state, updated: item.updated,
+        sha: head, closes: item.closes !== undefined ? item.closes.join(' ') : ((known.closes as string | undefined) ?? ''), checks: checksOf(repo.id, head), review: reviewOf(repo.id, item.number) };
       // GitHub's state is shown beside the task, never written into it: its holder decides what closing there means here.
       const changed = item.state !== known.state;
       const said = item.state === 'open' ? 'was reopened' : item.state === 'merged' ? 'was merged' : 'was closed';
@@ -1250,6 +1279,53 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       commit('github.updated', 'github', t.id as string, `GitHub ${label}${changed ? ` ${said}` : ' changed'}`, put,
         changed ? parties(t).map((dest) => ({ dest, type: 'github', subject: t.id as string, text: `GitHub ${label} ${said}: ${item.url}. Decide here whether ${t.id} is done or cancelled.` })) : []);
       return { result: 'applied', task: t.id as string };
+    }
+    if (check !== null) {
+      const id = `${repo.id}#${check.sha}#${check.name}`;
+      const before = store.get('gh_checks', id);
+      // A run's outcome only moves forward: an older delivery, or a queued run after a completed one, changes nothing.
+      const stale = before !== null && (Date.parse(check.at) < Date.parse(before.ts as string) || (before.status === 'completed' && check.status !== 'completed'));
+      const row: Row = stale ? before! : { id, repo: repo.id, sha: check.sha, name: check.name, status: check.status, conclusion: check.conclusion, ts: check.at };
+      // The pull requests it ran for: those GitHub names, and any whose head it is.
+      const items = store.all('gh_items').filter((g) => g.repo === repo.id && g.kind === 'pr' && (g.sha === check.sha || check.prs.includes(Number(g.number))));
+      const put: Record<string, Row[]> = { gh_checks: [row], gh_deliveries: [receipt(stale ? 'stale' : 'applied')], ...settings };
+      const notes: Note[] = [];
+      const updated: Row[] = [];
+      for (const g of items) {
+        const head = g.sha === '' ? check.sha : (g.sha as string);
+        if (head !== check.sha) continue;
+        const summary = summarizeChecks([...store.all('gh_checks').filter((c) => c.repo === repo.id && c.sha === head && c.id !== id), row]);
+        if (summary === g.checks && g.sha === head) continue;
+        updated.push({ ...g, sha: head, checks: summary });
+        const t = store.get('tasks', g.task as string);
+        // Checks failing is news to whoever holds the task; passing, running or a reconciliation is not.
+        if (t !== null && summary === 'failure' && g.checks !== 'failure' && t.assignee !== '') {
+          notes.push({ dest: t.assignee as string, type: 'github', subject: t.id as string, text: `Checks failed on GitHub ${short}#${g.number} (${check.name}): ${g.url}/checks` });
+        }
+      }
+      if (updated.length > 0) put.gh_items = updated;
+      commit('github.checks', 'github', updated[0]?.task as string ?? delivery, updated.length > 0 ? `GitHub ${short}#${updated.map((g) => g.number).join(', #')} checks: ${updated[0]!.checks}` : '', put, notes, updated.length === 0 || notes.length === 0);
+      return { result: stale ? 'ignored' : 'applied', ...(updated[0] ? { task: updated[0].task as string } : {}) };
+    }
+    if (review !== null) {
+      const id = `${repo.id}#${review.number}#${review.login}`;
+      const before = store.get('gh_reviews', id);
+      if (before === null || Date.parse(review.at) >= Date.parse(before.ts as string)) {
+        const row: Row = { id, repo: repo.id, number: review.number, login: review.login, state: review.state, ts: review.at };
+        const g = store.get('gh_items', `${repo.id}#${review.number}`);
+        const summary = summarizeReviews([...store.all('gh_reviews').filter((r) => r.repo === repo.id && Number(r.number) === review.number && r.id !== id), row]);
+        const put: Record<string, Row[]> = { gh_reviews: [row], ...settings };
+        if (g !== null && g.review !== summary) put.gh_items = [{ ...g, review: summary }];
+        // A review that is also news wakes the holder below, with this same frame's receipt.
+        if (ping === null) {
+          commit('github.review', 'github', (g?.task as string | undefined) ?? delivery, '', { ...put, gh_deliveries: [receipt('applied')] }, [], true);
+          return { result: 'applied', ...(g ? { task: g.task as string } : {}) };
+        }
+        commit('github.review', 'github', (g?.task as string | undefined) ?? delivery, '', put, [], true);
+      } else if (ping === null) {
+        commit('github.stale', 'github', delivery, '', { gh_deliveries: [receipt('stale')], ...settings }, [], true);
+        return { result: 'ignored' };
+      }
     }
     // Someone spoke or reviewed on GitHub: whoever holds the task is told where, not what.
     const known = store.get('gh_items', `${repo.id}#${ping!.number}`) ?? undefined;

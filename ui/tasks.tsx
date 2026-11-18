@@ -187,9 +187,53 @@ export function GithubTag({ id }: { id: string }) {
   const g = (board.github ?? []).find((x) => x.task === id);
   if (!g) return null;
   const short = String(g.repo).split('/').pop();
-  return <a className={`gh-tag gh-${g.state}`} href={g.url} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} title={`Open ${short}#${g.number} on GitHub: ${g.kind === 'pr' ? 'pull request' : 'issue'} by @${g.author}`}>
-    <GithubMark size={12} />{g.kind === 'pr' ? 'PR' : 'Issue'} {g.state}
-  </a>;
+  const checks = CHECKS[g.checks as string];
+  const review = REVIEW[g.review as string];
+  return (
+    <span className="gh-line" onClick={(e) => e.stopPropagation()}>
+      <a className={`gh-tag gh-${g.state}`} href={g.url} target="_blank" rel="noreferrer noopener" title={`Open ${short}#${g.number} on GitHub: ${g.kind === 'pr' ? 'pull request' : 'issue'} by @${g.author}`}>
+        <GithubMark size={12} />{g.kind === 'pr' ? 'PR' : 'Issue'} {g.state}
+      </a>
+      {checks && <a className={`gh-tag gh-checks ${checks.tone}`} href={`${g.url}/checks`} target="_blank" rel="noreferrer noopener" title={checks.title}><Icon name={checks.icon} size={12} />{checks.label}</a>}
+      {review && <span className={`gh-tag gh-review ${review.tone}`} title={review.title}><Icon name={review.icon} size={12} />{review.label}</span>}
+      {(g.closed_by as number[] | undefined)?.length ? <span className="gh-tag" title="Pull requests that say they close this issue">PR #{(g.closed_by as number[]).join(', #')}</span> : null}
+    </span>
+  );
+}
+
+/** How a pull request's checks read on its card; none says nothing. */
+const CHECKS: Record<string, { label: string; tone: string; icon: 'check' | 'x' | 'clock'; title: string }> = {
+  success: { label: 'checks', tone: 'ok', icon: 'check', title: 'Every check on the head commit passed' },
+  failure: { label: 'checks', tone: 'bad', icon: 'x', title: 'A check on the head commit failed' },
+  pending: { label: 'checks', tone: 'wait', icon: 'clock', title: 'Checks on the head commit are still running' },
+};
+/** How a pull request's reviews read; only what decides anything is shown. */
+const REVIEW: Record<string, { label: string; tone: string; icon: 'check' | 'undo'; title: string }> = {
+  approved: { label: 'approved', tone: 'ok', icon: 'check', title: 'Approved on GitHub, and nobody asks for changes' },
+  changes_requested: { label: 'changes requested', tone: 'bad', icon: 'undo', title: 'A reviewer asked for changes on GitHub' },
+};
+
+/** A GitHub task's links on the board: the issues a pull request closes, or the pull requests that close an issue. */
+function GithubLinks({ id }: { id: string }) {
+  const { board, open } = useCtx();
+  const all = board.github ?? [];
+  const g = all.find((x) => x.task === id);
+  if (!g) return null;
+  const numbers: number[] = g.kind === 'pr' ? (g.closes as number[] | undefined) ?? [] : (g.closed_by as number[] | undefined) ?? [];
+  if (numbers.length === 0 && !g.head) return null;
+  const short = String(g.repo).split('/').pop();
+  return (
+    <>
+      <h4>On GitHub</h4>
+      <dl className="props">
+        {g.head && <><dt>Head</dt><dd><a href={`https://github.com/${g.repo}/commit/${g.head}`} target="_blank" rel="noreferrer noopener"><code>{String(g.head).slice(0, 7)}</code></a></dd></>}
+        {numbers.length > 0 && <><dt>{g.kind === 'pr' ? 'Closes' : 'Closed by'}</dt><dd className="stack">{numbers.map((n) => {
+          const other = all.find((x) => x.repo === g.repo && x.number === n);
+          return other ? <button key={n} className="link" onClick={() => open('tasks', other.task)}>{short}#{n} · {other.task}</button> : <span key={n} className="muted">{short}#{n} (not on the board)</span>;
+        })}</dd></>}
+      </dl>
+    </>
+  );
 }
 
 /** A task's title as shown: a GitHub task's repo#number is its number, so it is not said twice. */
@@ -399,6 +443,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               </>
             )}
 
+            <GithubLinks id={t.id as string} />
             <h4>Evidence and external actions</h4>
             {d.evidence.length === 0 && <p className="muted">Nothing is attached yet.</p>}
             <ul className="list plain">

@@ -498,3 +498,9 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 /* Pasted images (T-447): shown in place, never wider than the text, opened full size on click. */
 .prose .pasted-image { display: block; width: fit-content; max-width: 100%; margin: 6px 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: var(--raised); }
 .prose .pasted-image img { display: block; max-width: 100%; max-height: 420px; height: auto; }
+
+/* GitHub stage 2 (T-446): state, checks and review side by side on a card. */
+.gh-line { display: inline-flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.gh-tag.gh-checks.ok, .gh-tag.gh-review.ok { color: #1a7f37; border-color: #b7dfc2; background: #effaf1; }
+.gh-tag.gh-checks.bad, .gh-tag.gh-review.bad { color: #b42318; border-color: #f3c0bb; background: #fef3f2; }
+.gh-tag.gh-checks.wait { color: #9a6700; border-color: #ecd9a5; background: #fff8e6; }
