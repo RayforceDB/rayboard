@@ -31,11 +31,16 @@ export function Chat({ item }: { item: string }) {
     const n = ++reads.current;
     void api.call<Row[]>('read_messages', { from: current, limit: 200 }).then((read) => { if (n !== reads.current) return; const next = sentHere.merge(current, read); setMessages(next); const last=next[next.length-1]; if(last) markRead(current,Number(last.seq)); }, () => setMessages([]));
   }, [current, tick, markRead]);
-  // In braces on purpose: newer browsers return a promise from scrollIntoView, and whatever an effect
-  // returns React calls as its cleanup when the view is left.
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [messages.length, current]);
+  // Follow the conversation while its reader is at its end (Anton: new messages and typing stayed below the fold):
+  // by the last message, not by how many are shown, which stays at 200 once a channel is longer. Someone reading
+  // further up is left where they are, unless the new message is their own.
+  const scroller = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+  const toEnd = (): void => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight; };
+  const lastId = messages.at(-1)?.id as string | undefined;
+  const lastMine = messages.at(-1)?.author === me.id;
+  useEffect(() => { atEnd.current = true; toEnd(); }, [current]);
+  useEffect(() => { if (atEnd.current || lastMine) toEnd(); }, [lastId, lastMine]);
 
   const canWrite = me.role !== 'viewer' && (channel !== undefined || mine(current) || current.startsWith('@'));
   const send = async (body: string): Promise<boolean> => {
@@ -110,11 +115,11 @@ export function Chat({ item }: { item: string }) {
           {channel && me.role !== 'viewer' && <button className="ghost" aria-pressed={Boolean(channel.subscribed)} onClick={() => void act(() => api.call('set_channel_subscription', { channel: channel.id, subscribed: !channel.subscribed }))}>{channel.subscribed ? 'Subscribed' : 'Subscribe'}</button>}
           {current.startsWith('dm:') && !mine(current) && <span className="muted">a conversation between agents, shown to you as an overseer</span>}
         </header>
-        <div className="scroll">
+        <div className="scroll" ref={scroller} onScroll={(e) => { const el = e.currentTarget; atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
           {current === '' && <Empty>Open a channel so agents and people have somewhere to talk.</Empty>}
           {current !== '' && messages.length === 0 && <Empty>Nothing here yet.</Empty>}
           {messages.map((m) => <div key={m.id} className={`msg ${m.author !== me.id && unread({...m,last:m.seq}) ? 'new-post' : ''}`}><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
-          <TypingNote chan={current} />
+          <TypingNote chan={current} onShown={() => { if (atEnd.current) toEnd(); }} />
           <div ref={end} />
         </div>
         {current !== '' && canWrite && (
