@@ -460,3 +460,5 @@ tr.clickable:hover td { background: var(--bg); }
 button.small { padding: 3px 10px; font-size: 13px; }
 .roster.projects button.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
 .roster.projects .n { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.project-swim.unfiled > h2, .groups h3.unfiled, .roster.projects .unfiled { font-style: italic; font-weight: 500; color: var(--muted); }
+.project-swim.unfiled { border-top: 1px dashed var(--line-strong); padding-top: 14px; }

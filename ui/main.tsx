@@ -293,7 +293,7 @@ function Projects({ board, onOpen }: { board: { tasks: Row[] }; onOpen: () => vo
           <span className="grow">{p.name}</span><span className="n" aria-label={`${p.open} open`}>{p.open}</span>
         </button>
       ))}
-      {board.tasks.some((t) => !t.project) && <button className={project === NONE ? 'on' : ''} onClick={() => choose(NONE)}><span className="grow muted">No project</span></button>}
+      {board.tasks.some((t) => !t.project) && <button className={project === NONE ? 'on' : ''} onClick={() => choose(NONE)}><span className="grow unfiled">Tasks without a project</span></button>}
     </div>
   );
 }

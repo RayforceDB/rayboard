@@ -64,7 +64,7 @@ export function Tasks({ item }: { item: string }) {
     return names.map((key) => {
       const tasks = visible.filter((t) => ((t.project as string | undefined) ?? '') === key)
         .sort((x, y) => ORDER.indexOf(x.status) - ORDER.indexOf(y.status) || y.priority - x.priority || y.seq - x.seq);
-      return { key, label: key || 'No project', tasks, open: tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').length };
+      return { key, label: key || 'Tasks without a project', tasks, open: tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').length };
     });
   })();
   const tagProject = group === 'status' && project === '';
@@ -124,7 +124,7 @@ export function Tasks({ item }: { item: string }) {
             <option value="">All projects</option>
             {projects.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.open})</option>)}
             {!known && <option value={project}>{project} (0)</option>}
-            {unfiled > 0 && <option value={NONE}>No project</option>}
+            {unfiled > 0 && <option value={NONE}>— without a project —</option>}
           </select>
           <label className="search"><Icon name="search" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…" aria-label="Search tasks" /></label>
           {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(project !== NONE && project !== '' ? project : true)}><Icon name="plus" />New task</button>}
@@ -137,8 +137,8 @@ export function Tasks({ item }: { item: string }) {
           {dropError && <p className="error" role="alert">{dropError}</p>}
           {group === 'status' && kanban(lanes, '')}
           {group === 'project' && byProject.map((g) => (
-            <section key={g.key || NONE} className="project-swim" aria-label={`Project ${g.label}`}>
-              <h2><Icon name="board" size={18} />{g.label}<span className="count-pill" title={`${g.open} still going on of ${g.tasks.length}`}>{g.open}</span></h2>
+            <section key={g.key || NONE} className={`project-swim ${g.key ? '' : 'unfiled'}`} aria-label={g.key ? `Project ${g.label}` : g.label}>
+              <h2>{g.key && <Icon name="board" size={18} />}{g.label}<span className="count-pill" title={`${g.open} still going on of ${g.tasks.length}`}>{g.open}</span></h2>
               {kanban(lanesOf(g.tasks), g.key)}
             </section>
           ))}
@@ -149,7 +149,7 @@ export function Tasks({ item }: { item: string }) {
           <div className="groups">
             {(group === 'status' ? lanes.filter((g) => g.total > 0) : byProject.map((g) => ({ ...g, total: g.open }))).map((g) => (
               <section key={g.key || NONE}>
-                <h3>{group === 'status' ? <span className={`lane-dot s-${g.key}`} aria-hidden="true" /> : <Icon name="board" size={16} />}{g.label}<span className="count-pill">{g.total}</span></h3>
+                <h3 className={group === 'project' && !g.key ? 'unfiled' : ''}>{group === 'status' ? <span className={`lane-dot s-${g.key}`} aria-hidden="true" /> : g.key ? <Icon name="board" size={16} /> : null}{g.label}<span className="count-pill">{g.total}</span></h3>
                 {g.tasks.map((t) => (
                   <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
                     <code>{t.id}</code>
