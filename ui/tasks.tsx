@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ago, api, clock, usd, when, type Row } from './api';
 import { Icon } from './icons';
 import { AgentStrip, Avatar, Badge, Empty, mayDecide, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
@@ -115,12 +115,7 @@ export function Tasks({ item }: { item: string }) {
             <button className={layout === 'board' ? 'on' : ''} onClick={() => pick('board')}><Icon name="board" />Board</button>
             <button className={layout === 'list' ? 'on' : ''} onClick={() => pick('list')}><Icon name="list" />List</button>
           </div>
-          <select className="project-filter" value={project} onChange={(e) => setProject(e.target.value)} aria-label="Project">
-            <option value="">All projects</option>
-            {projects.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.open})</option>)}
-            {!known && <option value={project}>{project} (0)</option>}
-            {unfiled > 0 && <option value={NONE}>— without a project —</option>}
-          </select>
+          <ProjectPicker value={project} onChange={setProject} projects={!known ? [...projects, { name: project, open: 0, total: 0 }] : projects} unfiled={unfiled > 0} />
           <label className="search"><Icon name="search" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…" aria-label="Search tasks" /></label>
           {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(project !== NONE && project !== '' ? project : true)}><Icon name="plus" />New task</button>}
         </header>
@@ -260,6 +255,49 @@ function Assignee({ value, onChange, none }: { value: string; onChange: (v: stri
   );
 }
 
+/**
+ * Which project the board is narrowed to, as a menu in the board's own style: each project with its mark and what is
+ * still going on in it. Arrows move, Enter chooses, Escape closes.
+ */
+function ProjectPicker({ value, onChange, projects, unfiled }: { value: string; onChange: (p: string) => void; projects: { name: string; open: number }[]; unfiled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+  const options = [{ key: '', label: 'All projects', open: -1 }, ...projects.map((p) => ({ key: p.name, label: p.name, open: p.open })), ...(unfiled ? [{ key: NONE, label: 'Without a project', open: -1 }] : [])];
+  const current = options.find((o) => o.key === value) ?? options[0]!;
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent): void => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  const choose = (key: string): void => { onChange(key); setOpen(false); };
+  const key = (e: React.KeyboardEvent): void => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setAt(Math.max(0, options.indexOf(current))); setOpen(true); return; }
+    if (!open) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setAt((at + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length); }
+    else if (e.key === 'Enter') { e.preventDefault(); choose(options[at]!.key); }
+  };
+  const mark = (k: string) => (k === '' || k === NONE ? <Icon name={k === '' ? 'board' : 'folder'} size={16} className="muted" /> : <ProjectMark name={k} size={16} />);
+  return (
+    <div className="picker" ref={box} onKeyDown={key}>
+      <button type="button" className={`picker-button ${value ? 'chosen' : ''}`} aria-haspopup="listbox" aria-expanded={open} aria-label="Project" onClick={() => { setAt(Math.max(0, options.indexOf(current))); setOpen(!open); }}>
+        {mark(current.key)}<span className={`grow ${current.key === NONE ? 'unfiled' : ''}`}>{current.label}</span><Icon name="chevron" size={14} className="muted" />
+      </button>
+      {open && (
+        <div className="picker-list" role="listbox" aria-label="Projects">
+          {options.map((o, i) => (
+            <button type="button" role="option" key={o.key || 'all'} aria-selected={o.key === value} className={`${i === at ? 'at' : ''} ${o.key === value ? 'on' : ''}`} onMouseEnter={() => setAt(i)} onClick={() => choose(o.key)}>
+              {mark(o.key)}<span className={`grow ${o.key === NONE ? 'unfiled' : ''}`}>{o.label}</span>{o.open >= 0 && <span className="n">{o.open}</span>}{o.key === value && <Icon name="check" size={14} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A project by name, offering the ones the board already has. */
 function ProjectInput({ value, onChange, autoFocus = false }: { value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
   const { board } = useCtx();
@@ -337,8 +375,11 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const live = t.status !== 'done' && t.status !== 'cancelled';
   const review = d.reviews.find((r) => r.status === 'pending');
   const run = (action: string, params: Row = {}) => () => void act(() => api.call(action, { task: t.id, ...params }));
-  const say = async (): Promise<void> => {
-    if (comment.trim() !== '' && (await act(() => api.call('post_message', { to: t.id, body: comment })))) setComment('');
+  const say = async (body: string): Promise<boolean> => {
+    if (body.trim() === '') return false;
+    const ok = await act(() => api.call('post_message', { to: t.id, body }));
+    if (ok) setComment('');
+    return ok;
   };
   const now = Date.parse(board.now);
   const decided = d.reviews.filter((r) => r.status !== 'pending');
@@ -499,9 +540,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       </div>
       {tab === 'discussion' && (
         <div className="reply">
-          <Icon name="comment" className="muted" />
-          <MentionInput value={comment} onChange={setComment} onSend={() => void say()} placeholder="Reply or @mention an agent…" ariaLabel={`Comment on ${t.id}`} />
-          <button className="primary icon send" onClick={() => void say()} disabled={comment.trim() === ''} aria-label="Send"><Icon name="send" /></button>
+          <MentionInput value={comment} onChange={setComment} onSend={say} placeholder="Reply, @mention, or paste an image…" ariaLabel={`Comment on ${t.id}`} />
         </div>
       )}
       {sub && <NewTask parent={t.id} onClose={() => setSub(false)} />}

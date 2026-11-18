@@ -287,10 +287,6 @@ main:has(> .board-view) { padding: 0; }
 .timeline { list-style: none; margin: 0; padding: 8px 22px 22px; display: grid; }
 .timeline li { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .timeline li .grow { overflow-wrap: anywhere; }
-.reply { display: flex; align-items: center; gap: 10px; margin: 12px 14px 14px; padding: 6px 6px 6px 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); }
-.reply:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.reply textarea { border: none; padding: 6px 0; resize: none; box-shadow: none !important; max-height: 160px; field-sizing: content; }
-.reply .send { padding: 7px; border-radius: var(--r-sm); }
 .composer { display: flex; gap: 8px; align-items: flex-end; margin-top: 6px; }
 .composer input { flex: 1; }
 .past { display: grid; gap: 4px; }
@@ -326,6 +322,7 @@ main:has(> .board-view) { padding: 0; }
 .chat > section > .head { padding: 18px 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
 .chat .scroll { flex: 1; overflow: auto; display: grid; gap: 0; align-content: start; padding: 0; }
 .chat .composer { padding: 12px 20px 16px; border-top: 1px solid var(--line); margin: 0; }
+.chat .composer > .composer-box { flex: 1; }
 .msg { display: grid; gap: 4px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
 .msg .who { font-weight: 700; }
 .chat .scroll > .empty { margin: 24px; }
@@ -504,3 +501,33 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 .gh-tag.gh-checks.ok, .gh-tag.gh-review.ok { color: #1a7f37; border-color: #b7dfc2; background: #effaf1; }
 .gh-tag.gh-checks.bad, .gh-tag.gh-review.bad { color: #b42318; border-color: #f3c0bb; background: #fef3f2; }
 .gh-tag.gh-checks.wait { color: #9a6700; border-color: #ecd9a5; background: #fff8e6; }
+
+/* One message box for chat and task replies: text, pasted images as thumbnails, and send inside it. */
+.reply { display: flex; margin: 12px 14px 14px; }
+.reply > .composer-box { flex: 1; }
+.composer-box { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); padding: 6px 6px 6px 14px; transition: border-color 0.15s, box-shadow 0.15s; }
+.composer-box:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong)); box-shadow: 0 0 0 3px var(--accent-soft); }
+.composer-row { display: flex; align-items: flex-end; gap: 8px; }
+.composer-box textarea { flex: 1; border: none; padding: 7px 0; resize: none; box-shadow: none !important; background: transparent; min-height: 22px; max-height: 200px; field-sizing: content; line-height: 1.45; }
+.composer-box textarea:focus { box-shadow: none; }
+.composer-box .send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 9px; }
+.attached { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
+.thumb { position: relative; width: 76px; height: 76px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line); background: var(--raised); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; min-height: 0; padding: 0; border-radius: 50%; border: none; background: rgb(20 18 16 / 0.6); color: #fff; display: grid; place-items: center; }
+.thumb.loading { background: linear-gradient(90deg, var(--raised), var(--line), var(--raised)); background-size: 200% 100%; animation: thumb-wait 1s linear infinite; }
+@keyframes thumb-wait { from { background-position: 200% 0; } to { background-position: 0 0; } }
+
+/* The project picker (Anton, 18.11): the board's own control in place of the browser's select. */
+.picker { position: relative; }
+.picker-button { display: inline-flex; align-items: center; gap: 8px; min-width: 190px; max-width: 240px; height: 40px; padding: 0 12px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r); color: var(--text); font-weight: 500; }
+.picker-button:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line-strong)); }
+.picker-button[aria-expanded="true"], .picker-button:focus-visible { outline: none; border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong)); box-shadow: 0 0 0 3px var(--accent-soft); }
+.picker-button.chosen { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); font-weight: 600; }
+.picker-button .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.picker-list { position: absolute; top: calc(100% + 6px); right: 0; min-width: 240px; max-height: 360px; overflow-y: auto; display: grid; gap: 2px; padding: 6px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: var(--shadow-lift); z-index: 40; }
+.picker-list button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; border: none; background: transparent; padding: 8px 10px; border-radius: var(--r-sm); text-align: left; font-weight: 450; }
+.picker-list button.at { background: var(--raised); }
+.picker-list button.on { color: var(--accent-text); font-weight: 600; }
+.picker-list .n { font-size: 12px; font-weight: 600; line-height: 18px; padding: 0 7px; border-radius: 99px; background: var(--raised); border: 1px solid var(--line); color: var(--muted); }
+.picker-list .unfiled, .picker-button .unfiled { font-style: italic; color: var(--muted); }

@@ -29,10 +29,12 @@ export function Chat({ item }: { item: string }) {
   }, [messages.length, current]);
 
   const canWrite = me.role !== 'viewer' && (channel !== undefined || mine(current) || current.startsWith('@'));
-  const send = async (): Promise<void> => {
-    if (text.trim() === '') return;
+  const send = async (body: string): Promise<boolean> => {
+    if (body.trim() === '') return false;
     const to = current.startsWith('dm:') ? `@${dmLabel(current)}` : current;
-    if (await act(() => api.call('post_message', { to, body: text }))) setText('');
+    const ok = await act(() => api.call('post_message', { to, body }));
+    if (ok) setText('');
+    return ok;
   };
   const others = [...board.agents.filter((a) => a.status !== 'revoked'), ...board.people.filter((p) => p.status === 'active')].filter((a) => a.id !== me.id);
   const dmOf = (id: string): string => `dm:${[me.id, id].sort().join(':')}`;
@@ -65,8 +67,7 @@ export function Chat({ item }: { item: string }) {
         </div>
         {current !== '' && canWrite && (
           <div className="composer">
-            <MentionInput value={text} onChange={setText} onSend={() => void send()} placeholder="Write a message; @name notifies. Ctrl+Enter sends." />
-            <button className="primary" onClick={() => void send()} disabled={text.trim() === ''}>Send</button>
+            <MentionInput value={text} onChange={setText} onSend={send} placeholder="Write a message; @name notifies, an image can be pasted. Ctrl+Enter sends." />
           </div>
         )}
       </section>

@@ -28,6 +28,24 @@ async function fitted(file: File): Promise<Blob> {
   throw new Error('the image is too large even when made smaller');
 }
 
+/** An image put into a message before it is sent: where the board keeps it, and what to call it. */
+export interface Attached { url: string; alt: string }
+
+/** Uploads the images and answers each one kept, to be shown as a thumbnail until the message goes. */
+export async function attach(files: File[]): Promise<Attached[]> {
+  const out: Attached[] = [];
+  for (const file of files) {
+    const url = await api.image(await fitted(file));
+    const alt = (file.name && !/^image\.(png|jpe?g|gif|webp)$/i.test(file.name) ? file.name.replace(/\.[^.]+$/, '') : 'image').replace(/[[\]\n]/g, ' ');
+    out.push({ url, alt });
+  }
+  return out;
+}
+
+/** A message's text with its attached images after it, as the Markdown the board stores. */
+export const withImages = (text: string, images: Attached[]): string =>
+  [text.trim(), ...images.map((i) => `![${i.alt}](${i.url})`)].filter((part) => part !== '').join('\n');
+
 /** Uploads the images and answers the Markdown that shows them, one per line. */
 export async function markdownFor(files: File[]): Promise<string> {
   const lines: string[] = [];
