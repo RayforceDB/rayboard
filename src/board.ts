@@ -101,6 +101,8 @@ export interface Board {
   onChange(listener: (entry: Entry) => void): void;
   /** Takes one signed GitHub webhook delivery (T-19): its receipt and what it changes are one write. */
   githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string };
+  /** Whether the board already holds this pull request whole (its head) as of this update on GitHub (T-446). */
+  githubKnown(repo: string, number: number, updated: string): boolean;
   /** GitHub items whose rb:* label does not say what their task's status is (T-446): what to write, and where. */
   githubLabelTargets(): { item: string; repo: string; number: number; want: string }[];
   /** Records a label write and what reading it back showed; a write that did not take is said in the activity. */
@@ -1599,6 +1601,10 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     onChange: (listener) => void listeners.push(listener),
     githubDelivery,
     githubFollowed: () => followed(),
+    githubKnown(repo, number, updated) {
+      const g = store.get('gh_items', `${repo}#${number}`);
+      return g !== null && (g.sha ?? '') !== '' && Date.parse(g.updated as string) >= Date.parse(updated);
+    },
     githubLabelTargets() {
       // GitHub lets an App label a pull request only with pull_requests: write; with issues: write alone it
       // answers 403. Pull requests are labelled once the grant allows it, issues always (T-446, Mica's review).

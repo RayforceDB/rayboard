@@ -296,35 +296,40 @@ export class GithubApp {
 
   /**
    * Every open issue and pull request of a repository, and every one closed since the cutoff, as webhook-shaped
-   * deliveries with the id each is to be taken under. An open pull request comes from the pulls API, which gives
-   * its head and description, followed by its head's check runs and its reviews (T-446).
+   * deliveries with the id each is to be taken under. Pull requests, open and recently closed, come from the pulls
+   * API, which gives their head and description, each followed by its head's check runs and its reviews (T-446).
+   * `known` says whether the board already holds a pull request whole as of that update: then its checks and
+   * reviews are not asked again, which keeps a reconciliation to a few calls when little changed.
    */
-  async *snapshot(repo: { id: string; name: string; private: boolean }, cutoff: string): AsyncGenerator<{ event: string; payload: Record<string, unknown>; id: string }> {
+  async *snapshot(repo: { id: string; name: string; private: boolean }, cutoff: string, known: (number: number, updated: string) => boolean = () => false): AsyncGenerator<{ event: string; payload: Record<string, unknown>; id: string }> {
     const t = this.cached !== null && this.cached.until > this.now() ? this.cached : await this.token();
     const auth = `token ${t.token}`;
     const repository = { id: Number(repo.id), full_name: repo.name, private: repo.private };
     for (const query of ['state=open', `state=closed&since=${encodeURIComponent(cutoff)}`]) {
       for await (const page of this.pages(`/repos/${repo.name}/issues?${query}&per_page=100`, auth)) {
-        for (const i of page) {
-          const pr = i.pull_request as Record<string, unknown> | undefined;
-          if (pr === undefined) yield { event: 'issues', payload: { action: 'synced', issue: i, repository }, id: `sync-${repo.id}-${i.number}-${i.updated_at}` };
-          // An open one comes below, whole.
-          else if (i.state !== 'open') yield { event: 'pull_request', payload: { action: 'synced', pull_request: { ...i, merged_at: pr.merged_at ?? null }, repository }, id: `sync-${repo.id}-${i.number}-${i.updated_at}` };
-        }
+        // Pull requests come below, whole.
+        for (const i of page) if (i.pull_request === undefined) yield { event: 'issues', payload: { action: 'synced', issue: i, repository }, id: `sync-${repo.id}-${i.number}-${i.updated_at}` };
       }
     }
-    for await (const page of this.pages(`/repos/${repo.name}/pulls?state=open&per_page=100`, auth)) {
-      for (const p of page) {
-        yield { event: 'pull_request', payload: { action: 'synced', pull_request: p, repository }, id: `sync-${repo.id}-${p.number}-${p.updated_at}-pr` };
-        const sha = String((p.head as Record<string, unknown> | undefined)?.sha ?? '');
-        if (/^[0-9a-f]{40}$/.test(sha)) {
-          const runs = (await (await this.call(`/repos/${repo.name}/commits/${sha}/check-runs?per_page=100`, auth)).json()) as { check_runs?: Record<string, unknown>[] };
-          for (const run of runs.check_runs ?? []) {
-            yield { event: 'check_run', payload: { action: 'synced', check_run: { ...run, pull_requests: [{ number: p.number }] }, repository }, id: `sync-check-${run.id}-${run.status}-${run.conclusion ?? ''}` };
+    for (const state of ['open', 'closed']) {
+      // Newest first, so a closed list stops at the cutoff instead of reading a repository's whole history.
+      pages: for await (const page of this.pages(`/repos/${repo.name}/pulls?state=${state}&sort=updated&direction=desc&per_page=100`, auth)) {
+        for (const p of page) {
+          if (state === 'closed' && String(p.updated_at) < cutoff) break pages;
+          // Asked before the pull request is handed over: once taken, the board would already hold it.
+          const whole = known(Number(p.number), String(p.updated_at));
+          yield { event: 'pull_request', payload: { action: 'synced', pull_request: p, repository }, id: `sync-${repo.id}-${p.number}-${p.updated_at}-pr` };
+          if (whole) continue;
+          const sha = String((p.head as Record<string, unknown> | undefined)?.sha ?? '');
+          if (/^[0-9a-f]{40}$/.test(sha)) {
+            const runs = (await (await this.call(`/repos/${repo.name}/commits/${sha}/check-runs?per_page=100`, auth)).json()) as { check_runs?: Record<string, unknown>[] };
+            for (const run of runs.check_runs ?? []) {
+              yield { event: 'check_run', payload: { action: 'synced', check_run: { ...run, pull_requests: [{ number: p.number }] }, repository }, id: `sync-check-${run.id}-${run.status}-${run.conclusion ?? ''}` };
+            }
           }
-        }
-        for await (const reviews of this.pages(`/repos/${repo.name}/pulls/${p.number}/reviews?per_page=100`, auth)) {
-          for (const r of reviews) yield { event: 'pull_request_review', payload: { action: 'synced', review: r, pull_request: { number: p.number, html_url: p.html_url }, repository }, id: `sync-review-${r.id}-${r.state}` };
+          for await (const reviews of this.pages(`/repos/${repo.name}/pulls/${p.number}/reviews?per_page=100`, auth)) {
+            for (const r of reviews) yield { event: 'pull_request_review', payload: { action: 'synced', review: r, pull_request: { number: p.number, html_url: p.html_url }, repository }, id: `sync-review-${r.id}-${r.state}` };
+          }
         }
       }
     }

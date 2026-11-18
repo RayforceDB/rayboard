@@ -97,7 +97,7 @@ export function startServer(o: ServerOptions): Server {
       for (const r of followed) {
         const granted = grant.repos.find((g) => (r.id !== '' ? g.id === r.id : g.name.toLowerCase() === r.name.toLowerCase()));
         if (granted === undefined) continue;
-        for await (const d of github.snapshot(granted, cutoff)) o.board.githubDelivery(d.id, d.event, d.payload);
+        for await (const d of github.snapshot(granted, cutoff, (number, updated) => o.board.githubKnown(granted.id, number, updated))) o.board.githubDelivery(d.id, d.event, d.payload);
       }
       void syncLabels();
     } catch (err) {

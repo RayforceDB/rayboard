@@ -48,7 +48,8 @@ function fakeGithub(o: { permissions?: Record<string, string>; repos?: { id: num
     // Open pull requests whole, with their head and description; the head's check runs; the reviews (T-446).
     const pulls = /^\/repos\/(.+)\/pulls$/.exec(u.pathname);
     if (pulls) {
-      const all = open.flat().filter((i) => i.pull_request !== undefined).map((i) => ({ ...i, head: { sha: 'a'.repeat(40) }, body: 'Fixes #1' }));
+      const source = u.searchParams.get('state') === 'closed' ? (o.closed ?? []) : open.flat();
+      const all = source.filter((i) => i.pull_request !== undefined).map((i) => ({ ...i, merged_at: (i.pull_request as { merged_at?: string | null }).merged_at ?? null, head: { sha: 'a'.repeat(40) }, body: 'Fixes #1' }));
       return reply(all);
     }
     if (/^\/repos\/.+\/commits\/[0-9a-f]{40}\/check-runs$/.test(u.pathname)) {
@@ -215,4 +216,19 @@ test('a pull request is labelled only once the App may write pull requests; unti
     for (let i = 0; i < 30 && !(fake.labels.get('RayforceDB/rayforce#4') ?? []).includes('rb:in-progress'); i++) await Bun.sleep(20);
     expect((fake.labels.get('RayforceDB/rayforce#4') ?? []).includes('rb:in-progress')).toBe(written);
   }
+});
+
+test('a recently closed pull request is read whole too, and a second reconciliation asks nothing more of an unchanged one (T-446)', async () => {
+  const closedPr = issue(6, 'merged lately', { state: 'closed', updated_at: new Date().toISOString(), pull_request: { merged_at: new Date().toISOString() } });
+  const fake = fakeGithub({ open: [[issue(1, 'one')]], closed: [closedPr] });
+  const { board, server, admin } = await setup(fake);
+  const anton = board.firstUser()!;
+  const started = (await (await fetch(`${server.url}/api/github/connect`, { method: 'POST', headers: admin, body: '{}' })).json()) as { url: string };
+  await fetch(`${server.url}/api/github/manifest?code=good-code&state=${new URL(started.url).searchParams.get('state')}`, { redirect: 'manual' });
+  await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
+  const github = ((await board.call(anton, 'dashboard', {})) as { github: { number: number; state: string; head: string; checks: string; review: string; closes: number[] }[] }).github;
+  expect(github.find((g) => g.number === 6)).toMatchObject({ state: 'merged', head: 'a'.repeat(40), checks: 'success', review: 'approved', closes: [1] });
+  const asked = fake.asked.filter((a) => a.includes('/check-runs') || a.includes('/reviews')).length;
+  await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
+  expect(fake.asked.filter((a) => a.includes('/check-runs') || a.includes('/reviews')).length).toBe(asked);
 });
