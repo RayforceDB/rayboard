@@ -2,6 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { Acme, CertStore, challengeListener, dueForRenewal, LETS_ENCRYPT, LETS_ENCRYPT_STAGING } from '../src/acme';
 import { openBoard } from '../src/board';
 import { ensureEngine } from '../src/engine';
 import { openRay, RayError, type Ray } from '../src/ray';
@@ -16,7 +17,11 @@ const HELP = `rayboard ${VERSION}: a shared board for AI agents and the people o
   rayboard engine    download and verify the pinned RayforceDB build
 
 options for serve (or the environment variable):
-  --host <addr>      address to listen on        RAYBOARD_HOST   127.0.0.1
+  --domain <name>    the board's own name: it gets and renews its own Let's Encrypt certificate,
+                     serves HTTPS on 443 and redirects HTTP on 80; nothing is needed in front   RAYBOARD_DOMAIN
+  --http-port <n>    where Let's Encrypt is answered and HTTP redirected, with --domain   RAYBOARD_HTTP_PORT   80
+  --acme-staging     ask Let's Encrypt's staging service, for trying --domain out
+  --host <addr>      address to listen on        RAYBOARD_HOST   127.0.0.1 (0.0.0.0 with --domain)
   --port <n>         port                        RAYBOARD_PORT   4700
   --data <dir>       where the board is kept     RAYBOARD_DATA   ./.rayboard
   --tls-cert <file>  certificate chain (PEM)     RAYBOARD_TLS_CERT
@@ -26,7 +31,8 @@ options for serve (or the environment variable):
                      join without a key or approval. Only where every caller is trusted: your
                      own machine, a test, an agent working on rayboard.        RAYBOARD_UNSAFE=1
 
-Listening on anything but this machine needs TLS: a certificate here, or a proxy in front.`;
+Listening on anything but this machine needs TLS: --domain, a certificate here, or a proxy in front.
+Ports 80 and 443 need the right to bind them: run as a service with CAP_NET_BIND_SERVICE, or setcap it on bun.`;
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'help';
@@ -55,11 +61,20 @@ async function buildUi(out: string): Promise<void> {
 }
 
 if (command === 'serve') {
-  const host = flag('host', 'RAYBOARD_HOST') ?? '127.0.0.1';
-  const port = Number(flag('port', 'RAYBOARD_PORT') ?? 4700);
-  const cert = flag('tls-cert', 'RAYBOARD_TLS_CERT');
-  const key = flag('tls-key', 'RAYBOARD_TLS_KEY');
+  // A board on its own name holds its own certificate (T-453): it listens on every address, HTTPS on 443, and
+  // answers Let's Encrypt and redirects on 80. Nothing else is needed in front of it.
+  const domain = flag('domain', 'RAYBOARD_DOMAIN');
+  if (domain !== undefined && !/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(domain)) throw new Error(`not a domain name: ${domain}`);
+  const host = flag('host', 'RAYBOARD_HOST') ?? (domain ? '0.0.0.0' : '127.0.0.1');
+  const port = Number(flag('port', 'RAYBOARD_PORT') ?? (domain ? 443 : 4700));
+  const httpPort = Number(flag('http-port', 'RAYBOARD_HTTP_PORT') ?? 80);
+  const tlsDir = join(data, 'tls');
+  let cert = flag('tls-cert', 'RAYBOARD_TLS_CERT');
+  let key = flag('tls-key', 'RAYBOARD_TLS_KEY');
+  if (domain !== undefined && (cert !== undefined || key !== undefined)) throw new Error('--domain gets its own certificate; leave out --tls-cert and --tls-key');
+  if (domain !== undefined) { cert = join(tlsDir, 'cert.pem'); key = join(tlsDir, 'key.pem'); }
   const behindProxy = args.includes('--behind-proxy') || process.env.RAYBOARD_BEHIND_PROXY === '1';
+  if (domain !== undefined && behindProxy) throw new Error('--domain is for a board with nothing in front of it; leave out --behind-proxy');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`not a port: ${port}`);
   if ((cert === undefined) !== (key === undefined)) throw new Error('--tls-cert and --tls-key go together');
   const unsafe = args.includes('--unsafe') || process.env.RAYBOARD_UNSAFE === '1';
@@ -75,7 +90,29 @@ if (command === 'serve') {
   await buildUi(ui);
   // In unsafe mode whoever sends no agent token is the first person of the board; a board with nobody gets one whose password nobody knows.
   const operator = unsafe ? (board.firstUser() ?? (await board.createUser('operator', randomBytes(24).toString('base64url')))) : undefined;
-  const server = startServer({ board, host, port, behindProxy, ui, log, ...(cert && key ? { tls: { cert, key } } : {}), ...(operator ? { unsafe: operator } : {}) });
+  // Its own certificate: the challenge listener first, then a certificate if none is held, then HTTPS.
+  let renew: (() => Promise<boolean>) | undefined;
+  let challenges: ReturnType<typeof challengeListener> | undefined;
+  if (domain !== undefined) {
+    const store = new CertStore(tlsDir);
+    const answers = new Map<string, string>();
+    challenges = challengeListener(host, httpPort, domain, answers, port);
+    const directory = flag('acme-directory', 'RAYBOARD_ACME_DIRECTORY') ?? (args.includes('--acme-staging') ? LETS_ENCRYPT_STAGING : LETS_ENCRYPT);
+    const acme = new Acme(directory, store.account());
+    const obtain = async (): Promise<void> => {
+      log(`tls: asking ${new URL(directory).host} for a certificate for ${domain}`);
+      const issued = await acme.issue(domain, (token, answer) => { if (answer === null) answers.delete(token); else answers.set(token, answer); });
+      store.save(issued);
+      log(`tls: certificate for ${domain} until ${issued.notAfter}`);
+    };
+    if (dueForRenewal(store.current(domain), Date.now())) await obtain();
+    renew = async () => {
+      if (!dueForRenewal(store.current(domain), Date.now())) return false;
+      await obtain();
+      return true;
+    };
+  }
+  const server = startServer({ board, host, port, behindProxy, ui, log, ...(cert && key ? { tls: { cert, key } } : {}), ...(operator ? { unsafe: operator } : {}), ...(renew ? { renew } : {}) });
   log(`rayboard ${VERSION} on ${server.url}  (RayforceDB ${ray.commit}, data in ${data})`);
   log(`agents connect to ${server.url}/mcp with their token`);
   if (operator !== undefined) {
@@ -85,6 +122,7 @@ if (command === 'serve') {
   if (server.setupCode !== null) log(`\nNobody oversees this board yet. Open ${server.url} and enter this setup code:\n\n    ${server.setupCode}\n`);
   const stop = async (): Promise<void> => {
     await server.stop();
+    await challenges?.stop(true);
     board.close();
     ray.close();
     process.exit(0);

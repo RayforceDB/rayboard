@@ -41,6 +41,13 @@ export interface ServerOptions {
   log: (line: string) => void;
   /** How the server reaches GitHub: fetch, or a stand-in in tests. */
   githubFetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /**
+   * A board that holds its own certificate (T-453): asked every day whether it renewed `tls`; when it did, the
+   * new certificate is taken up without a restart by a new listener on the same port, the old one let go.
+   */
+  renew?: () => Promise<boolean>;
+  /** When the first renewal check runs after start; a minute unless a test says otherwise. */
+  renewFirstMs?: number;
 }
 
 export interface Server {
@@ -234,10 +241,14 @@ export function startServer(o: ServerOptions): Server {
     return session instanceof Response ? session : session.user;
   }
 
-  const server = Bun.serve<{ user: string; key: string }>({
+  // Read fresh at each listen, so a renewed certificate is taken up by the next listener.
+  const tlsNow = () => (o.tls ? { tls: { cert: readFileSync(o.tls.cert, 'utf8'), key: readFileSync(o.tls.key, 'utf8') } } : {});
+  const listen = (port: number) => Bun.serve<{ user: string; key: string }>({
     hostname: o.host,
-    port: o.port,
-    ...(o.tls ? { tls: { cert: Bun.file(o.tls.cert), key: Bun.file(o.tls.key) } } : {}),
+    port,
+    ...tlsNow(),
+    // A renewed certificate starts a second listener on this port before the first is let go.
+    ...(o.renew ? { reusePort: true } : {}),
     maxRequestBodySize: IMAGE_BODY_MAX,
     // An inbox may wait 50 seconds for something to arrive.
     idleTimeout: 90,
@@ -447,6 +458,23 @@ export function startServer(o: ServerOptions): Server {
       maxPayloadLength: 1024,
     },
   });
+  let server = listen(o.port);
+  // Renewal: daily, and a minute after start. A failure is said and tried again the next day; the old certificate stays.
+  const renewing = o.renew;
+  const renewOnce = async (): Promise<void> => {
+    if (!renewing) return;
+    try {
+      if (!(await renewing())) return;
+      const old = server;
+      server = listen(old.port!);
+      void old.stop();
+      o.log('tls: a renewed certificate was taken up without a restart');
+    } catch (err) {
+      o.log(`tls: renewal failed, the current certificate stays: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  const renewTimer = renewing ? setInterval(() => void renewOnce(), 24 * 3_600_000) : undefined;
+  const renewFirst = renewing ? setTimeout(() => void renewOnce(), o.renewFirstMs ?? 60_000) : undefined;
 
   // The feed says that something changed and what; the dashboard asks for what it shows through the API, as itself.
   // Each socket is told only while its session lasts, and of a private task only if its person may see it.
@@ -485,6 +513,8 @@ export function startServer(o: ServerOptions): Server {
       clearInterval(sweep);
       clearInterval(githubTimer);
       clearTimeout(githubFirst);
+      if (renewTimer) clearInterval(renewTimer);
+      if (renewFirst) clearTimeout(renewFirst);
       await server.stop(true);
     },
   };
