@@ -5,6 +5,7 @@ import { AgentStrip, Avatar, Badge, Empty, mayDecide, Field, Form, Menu, Modal, 
 import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
+import { NONE, inProject, projectsOf, useProject } from './projects';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -15,16 +16,29 @@ const LANES = [
   { key: 'done', label: 'Done', has: ['done'] },
 ] as const;
 const CANCELLED = { key: 'cancelled', label: 'Cancelled', has: ['cancelled'] } as const;
+/** Where each status stands in the work, for ordering a project's tasks: what moves first, finished work last. */
+const ORDER = ['in_review', 'changes_requested', 'in_progress', 'blocked', 'waiting', 'open', 'done', 'cancelled'];
 
 export function Tasks({ item }: { item: string }) {
   const { board, open, name, me, unread, markRead, act } = useCtx();
-  const [creating, setCreating] = useState(false);
+  /** Whether a new task is being made, and in which project when it was started from one. */
+  const [creating, setCreating] = useState<boolean | string>(false);
   const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState('');
   const [dropLane, setDropLane] = useState('');
   const [dropError, setDropError] = useState('');
+  const [project, setProject] = useProject();
+  const [group, setGroup] = useState<'status' | 'project'>(() => { try { return localStorage.getItem('rb.group') === 'project' ? 'project' : 'status'; } catch { return 'status'; } });
+  const groupBy = (g: 'status' | 'project'): void => {
+    setGroup(g);
+    try { localStorage.setItem('rb.group', g); } catch { /* only a convenience */ }
+  };
+  const projects = projectsOf(board.tasks);
+  const unfiled = board.tasks.filter((t) => !t.project).length;
+  // A project chosen elsewhere and since emptied still filters, so it stays listed until another is chosen.
+  const known = project === '' || project === NONE || projects.some((p) => p.name === project);
   const pick = (l: 'list' | 'board'): void => {
     setLayout(l);
     try { localStorage.setItem('rb.layout', l); } catch { /* only a convenience */ }
@@ -36,12 +50,24 @@ export function Tasks({ item }: { item: string }) {
   // Only work still going on is marked: it is what the sidebar counts, and a change to finished work asks nothing.
   const unreadRow = (t: Row) => t.status !== 'done' && t.status !== 'cancelled' && unread(t);
   const q = query.trim().toLowerCase();
-  const shown = board.tasks.filter((t) => q === '' || `${t.id} ${t.title} ${name(t.assignee)}`.toLowerCase().includes(q));
-  const lanes = [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
-    const tasks = shown.filter((t) => (lane.has as readonly string[]).includes(t.status));
+  const shown = board.tasks.filter((t) => inProject(t, project) && (q === '' || `${t.id} ${t.title} ${name(t.assignee)} ${t.project ?? ''}`.toLowerCase().includes(q)));
+  const lanesOf = (among: Row[]) => [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
+    const tasks = among.filter((t) => (lane.has as readonly string[]).includes(t.status));
     const ordered = lane.key === 'done' || lane.key === 'cancelled' ? tasks.slice(0, 30) : tasks.sort((x, y) => y.priority - x.priority || y.seq - x.seq);
     return { ...lane, tasks: ordered, total: tasks.length };
   });
+  const lanes = lanesOf(shown);
+  /** The tasks shown, by project: projects by name, then those without one. Finished work is counted but not what orders them. */
+  const byProject = (() => {
+    const visible = shown.filter((t) => showAll || t.status !== 'cancelled');
+    const names = [...new Set(visible.map((t) => (t.project as string | undefined) ?? ''))].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)));
+    return names.map((key) => {
+      const tasks = visible.filter((t) => ((t.project as string | undefined) ?? '') === key)
+        .sort((x, y) => ORDER.indexOf(x.status) - ORDER.indexOf(y.status) || y.priority - x.priority || y.seq - x.seq);
+      return { key, label: key || 'No project', tasks, open: tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').length };
+    });
+  })();
+  const tagProject = group === 'status' && project === '';
   const canDrag = (t: Row): boolean => me.kind === 'agent' ? t.creator === me.id || t.assignee === me.id : me.role !== 'viewer';
   const drag = (e: DragEvent, t: Row): void => { setDragging(t.id as string); setDropError(''); e.dataTransfer.setData('application/x-rayboard-task', t.id as string); e.dataTransfer.effectAllowed = 'move'; };
   const drop = async (e: DragEvent, lane: any): Promise<void> => {
@@ -56,6 +82,27 @@ export function Tasks({ item }: { item: string }) {
   };
   /** A review this person can decide is the one thing on the board waiting on them. */
   const mine = new Set(board.reviews.filter((r) => mayDecide(r, me, board.tasks)).map((r) => r.task as string));
+  /** Lanes of cards; `scope` keeps a drop target apart when the same lane is shown once per project. */
+  const kanban = (of: ReturnType<typeof lanesOf>, scope: string) => (
+    <div className="kanban">
+      {of.map((lane) => (
+        <section key={lane.key} className={`lane ${dropLane === `${scope}/${lane.key}` ? 'drop-target' : ''}`} onDragOver={(e) => { if (dragging && canDrag(board.tasks.find((x) => x.id === dragging)!)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropLane(`${scope}/${lane.key}`); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropLane(''); }} onDrop={(e) => void drop(e, lane)}>
+          <h3><span className={`lane-dot s-${lane.key}`} aria-hidden="true" />{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(scope || (project !== NONE ? project : '') || true)}><Icon name="plus" /></button>}</h3>
+          {lane.tasks.map((t) => (
+            <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task s-${t.status} ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
+              <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}</span>
+              <b>{t.title}</b>
+              <Tags t={t} project={tagProject} />
+              <GithubTag id={t.id as string} />
+              <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
+              {mine.has(t.id) && <span className="ask"><Icon name="alert" />Waiting for your input</span>}
+              {t.dependency && <span className={`ask ${t.status === 'blocked' ? 'bad' : 'calm'}`}><Icon name={t.status === 'blocked' ? 'ban' : 'clock'} />{STATUS_LABEL[t.status]} on {t.dependency}</span>}
+            </button>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
 
   return (
     <div className="board-view">
@@ -69,8 +116,18 @@ export function Tasks({ item }: { item: string }) {
             <button className={layout === 'board' ? 'on' : ''} onClick={() => pick('board')}><Icon name="board" />Board</button>
             <button className={layout === 'list' ? 'on' : ''} onClick={() => pick('list')}><Icon name="list" />List</button>
           </div>
+          <div className="seg" role="group" aria-label="Group by">
+            <button className={group === 'status' ? 'on' : ''} onClick={() => groupBy('status')} title="Group by status">By status</button>
+            <button className={group === 'project' ? 'on' : ''} onClick={() => groupBy('project')} title="Group by project">By project</button>
+          </div>
+          <select className="project-filter" value={project} onChange={(e) => setProject(e.target.value)} aria-label="Project">
+            <option value="">All projects</option>
+            {projects.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.open})</option>)}
+            {!known && <option value={project}>{project} (0)</option>}
+            {unfiled > 0 && <option value={NONE}>No project</option>}
+          </select>
           <label className="search"><Icon name="search" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tasks…" aria-label="Search tasks" /></label>
-          {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(true)}><Icon name="plus" />New task</button>}
+          {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(project !== NONE && project !== '' ? project : true)}><Icon name="plus" />New task</button>}
         </header>
         <AgentStrip />
         {cancelled > 0 && <label className="check cancelled-toggle"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show {cancelled} cancelled</label>}
@@ -78,35 +135,26 @@ export function Tasks({ item }: { item: string }) {
         {layout === 'board' && board.tasks.length > 0 && (
           <>
           {dropError && <p className="error" role="alert">{dropError}</p>}
-          <div className="kanban">
-            {lanes.map((lane) => (
-              <section key={lane.key} className={`lane ${dropLane === lane.key ? 'drop-target' : ''}`} onDragOver={(e) => { if (dragging && canDrag(board.tasks.find((x) => x.id === dragging)!)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropLane(lane.key); } }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropLane(''); }} onDrop={(e) => void drop(e, lane)}>
-                <h3><span className={`lane-dot s-${lane.key}`} aria-hidden="true" />{lane.label}<span className="count-pill">{lane.total}</span>{lane.key === 'open' && me.role !== 'viewer' && <button className="ghost icon" aria-label="New task" onClick={() => setCreating(true)}><Icon name="plus" /></button>}</h3>
-                {lane.tasks.map((t) => (
-                  <button key={t.id} draggable={canDrag(t)} aria-grabbed={dragging === t.id} onDragStart={(e) => drag(e, t)} onDragEnd={() => { setDragging(''); setDropLane(''); }} className={`card-task s-${t.status} ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''} ${dragging === t.id ? 'dragging' : ''}`} onClick={() => open('tasks', t.id)}>
-                    <span className="row"><code>{t.id}</code><Badge status={t.status} /><span className="grow" /><Prio level={t.priority} />{unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}</span>
-                    <b>{t.title}</b>
-                    <Tags t={t} />
-                    <GithubTag id={t.id as string} />
-                    <span className="row"><Who id={t.assignee} empty="Unclaimed" size={20} /><span className="grow" /><span className="comments" title="comments"><Icon name="comment" />{comments.get(t.id) ?? 0}</span></span>
-                    {mine.has(t.id) && <span className="ask"><Icon name="alert" />Waiting for your input</span>}
-                    {t.dependency && <span className={`ask ${t.status === 'blocked' ? 'bad' : 'calm'}`}><Icon name={t.status === 'blocked' ? 'ban' : 'clock'} />{STATUS_LABEL[t.status]} on {t.dependency}</span>}
-                  </button>
-                ))}
-              </section>
-            ))}
-          </div>
+          {group === 'status' && kanban(lanes, '')}
+          {group === 'project' && byProject.map((g) => (
+            <section key={g.key || NONE} className="project-swim" aria-label={`Project ${g.label}`}>
+              <h2><Icon name="board" size={18} />{g.label}<span className="count-pill" title={`${g.open} still going on of ${g.tasks.length}`}>{g.open}</span></h2>
+              {kanban(lanesOf(g.tasks), g.key)}
+            </section>
+          ))}
+          {shown.length === 0 && <Empty>No task here matches.</Empty>}
           </>
         )}
         {layout === 'list' && board.tasks.length > 0 && (
           <div className="groups">
-            {lanes.filter((g) => g.total > 0).map((g) => (
-              <section key={g.key}>
-                <h3><span className={`lane-dot s-${g.key}`} aria-hidden="true" />{g.label}<span className="count-pill">{g.total}</span></h3>
+            {(group === 'status' ? lanes.filter((g) => g.total > 0) : byProject.map((g) => ({ ...g, total: g.open }))).map((g) => (
+              <section key={g.key || NONE}>
+                <h3>{group === 'status' ? <span className={`lane-dot s-${g.key}`} aria-hidden="true" /> : <Icon name="board" size={16} />}{g.label}<span className="count-pill">{g.total}</span></h3>
                 {g.tasks.map((t) => (
                   <button key={t.id} className={`task-row ${t.id === item ? 'on' : ''} ${unreadRow(t) ? 'unread' : ''}`} onClick={() => open('tasks', t.id)}>
                     <code>{t.id}</code>
                     <span className="title">{t.title}</span>
+                    {tagProject && t.project && <span className="tag project-tag">{t.project}</span>}
                     {unreadRow(t) && <span className="unread-chip" title="Changed by someone else since you last opened it">Updated</span>}
                     {t.dependency && <span className="muted dep">{t.status} on {t.dependency}</span>}
                     {mine.has(t.id) && <span className="ask inline"><Icon name="alert" />your input</span>}
@@ -125,7 +173,7 @@ export function Tasks({ item }: { item: string }) {
         )}
       </div>
       {item && <TaskDrawer key={item} id={item} onClose={() => open('tasks')} />}
-      {creating && <NewTask onClose={() => setCreating(false)} />}
+      {creating !== false && <NewTask project={typeof creating === 'string' ? creating : ''} onClose={() => setCreating(false)} />}
     </div>
   );
 }
@@ -142,10 +190,11 @@ export function GithubTag({ id }: { id: string }) {
   </a>;
 }
 
-function Tags({ t }: { t: Row }) {
-  if (!t.parent && t.private !== 1) return null;
+function Tags({ t, project = false }: { t: Row; project?: boolean }) {
+  if (!t.parent && t.private !== 1 && !(project && t.project)) return null;
   return (
     <span className="tags">
+      {project && t.project && <span className="tag project-tag">{t.project}</span>}
       {t.parent && <span className="tag"><Icon name="subtask" size={14} />in {t.parent}</span>}
       {t.private === 1 && <span className="tag"><Icon name="lock" size={14} />Private</span>}
     </span>
@@ -167,14 +216,27 @@ function Assignee({ value, onChange, none }: { value: string; onChange: (v: stri
   );
 }
 
-function NewTask({ onClose, parent = '' }: { onClose: () => void; parent?: string }) {
+/** A project by name, offering the ones the board already has. */
+function ProjectInput({ value, onChange, autoFocus = false }: { value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
+  const { board } = useCtx();
+  return (
+    <>
+      <input value={value} onChange={(e) => onChange(e.target.value)} list="rb-projects" maxLength={64} spellCheck={false} autoCapitalize="none" pattern="[A-Za-z0-9][A-Za-z0-9._\-]*" title="Letters, digits, ., - and _" autoFocus={autoFocus} />
+      <datalist id="rb-projects">{projectsOf(board.tasks).map((p) => <option key={p.name} value={p.name} />)}</datalist>
+    </>
+  );
+}
+
+function NewTask({ onClose, parent = '', project = '' }: { onClose: () => void; parent?: string; project?: string }) {
   const { act, open } = useCtx();
   const { board } = useCtx();
-  const [f, setF] = useState({ title: '', outcome: '', body: '', next: '', assignee: '', participants: '', private: false, priority: 1, review: 'required' });
+  const above = parent ? board.tasks.find((t) => t.id === parent) : undefined;
+  const [f, setF] = useState({ title: '', outcome: '', body: '', next: '', assignee: '', participants: '', private: false, priority: 1, review: 'required', project: project || ((above?.project as string | undefined) ?? '') });
   const set = (change: Partial<typeof f>): void => setF({ ...f, ...change });
   const submit = async (): Promise<void> => {
     let made: Row | null = null;
-    if (await act(async () => void (made = await api.call('create_task', { ...f, ...(parent ? { parent } : {}) })))) {
+    const { project: chosen, ...rest } = f;
+    if (await act(async () => void (made = await api.call('create_task', { ...rest, ...(chosen.trim() ? { project: chosen.trim() } : {}), ...(parent ? { parent } : {}) })))) {
       onClose();
       if (made !== null && !parent) open('tasks', (made as Row).id);
     }
@@ -186,6 +248,7 @@ function NewTask({ onClose, parent = '' }: { onClose: () => void; parent?: strin
         <Field label="Outcome" hint="What can be observed when it is done: the thing a reviewer will check."><textarea value={f.outcome} onChange={(e) => set({ outcome: e.target.value })} rows={2} maxLength={2000} required /></Field>
         <Field label="Description" hint="Everything the one doing it needs: context, where things are."><textarea value={f.body} onChange={(e) => set({ body: e.target.value })} rows={4} maxLength={20000} /></Field>
         <Field label="Next action"><input value={f.next} onChange={(e) => set({ next: e.target.value })} maxLength={500} /></Field>
+        <Field label="Project" hint="Such as rayforce or rayboard. Leave it empty for none."><ProjectInput value={f.project} onChange={(project) => set({ project })} /></Field>
         <Field label="Participants" hint={`Names separated by spaces. Here: ${[...board.agents.filter((a) => a.status === 'active'), ...board.people].map((a) => a.name).join(', ') || 'nobody yet'}`}><input value={f.participants} onChange={(e) => set({ participants: e.target.value })} maxLength={400} spellCheck={false} /></Field>
         <label className="check"><input type="checkbox" checked={f.private} onChange={(e) => set({ private: e.target.checked })} /> Private: only its creator, holder, reviewer and participants see it</label>
         <div className="row">
@@ -267,6 +330,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <Prio level={t.priority} />
             {t.private === 1 && <><i className="sep" /><span className="muted"><Icon name="lock" />Private</span></>}
             {t.parent && <><i className="sep" /><button className="link" onClick={() => open('tasks', t.parent)}>in {t.parent}</button></>}
+            {t.project && <><i className="sep" /><span className="tag project-tag" title="Project">{t.project}</span></>}
           </div>
           {(t.body || t.outcome) && <Prose className="lead">{t.body || t.outcome}</Prose>}
           {t.dependency && (
@@ -345,6 +409,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <h4>Properties</h4>
             <dl className="props">
               <dt>Created by</dt><dd><Who id={t.creator} /></dd>
+              <dt>Project</dt><dd><ProjectField t={t} /></dd>
               {t.participants && <><dt>Participants</dt><dd className="stack">{(t.participants as string).split(' ').map((p) => <Who key={p} id={p} />)}</dd></>}
               <dt>Review</dt><dd>{t.review}</dd>
               <dt>Visible to</dt><dd>{t.private === 1 ? 'its parties only' : 'everyone'}</dd>
@@ -396,5 +461,26 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       )}
       {sub && <NewTask parent={t.id} onClose={() => setSub(false)} />}
     </>,
+  );
+}
+
+/** A task's project, changed in place by whoever may change the task. */
+function ProjectField({ t }: { t: Row }) {
+  const { act, me } = useCtx();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState((t.project as string | undefined) ?? '');
+  const may = me.role !== 'viewer' && (me.kind === 'user' || t.creator === me.id || t.assignee === me.id) && (me.kind === 'user' || (t.status !== 'done' && t.status !== 'cancelled'));
+  if (!editing) return <span className="row">{t.project ? <span className="tag project-tag">{t.project}</span> : <span className="muted">none</span>}{may && <button className="ghost small" onClick={() => { setValue((t.project as string | undefined) ?? ''); setEditing(true); }}>Change</button>}</span>;
+  const save = async (): Promise<void> => {
+    const next = value.trim();
+    if (next === ((t.project as string | undefined) ?? '')) { setEditing(false); return; }
+    if (await act(() => api.call('update_task', { task: t.id, rev: t.rev, project: next === '' ? 'none' : next }))) setEditing(false);
+  };
+  return (
+    <form className="row" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <ProjectInput value={value} onChange={setValue} autoFocus />
+      <button className="primary small" type="submit">Save</button>
+      <button className="ghost small" type="button" onClick={() => setEditing(false)}>Cancel</button>
+    </form>
   );
 }

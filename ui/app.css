@@ -449,3 +449,14 @@ tr.clickable:hover td { background: var(--bg); }
 }
 
 .msg.new-post { border-left-color: var(--info); background: var(--info-soft); }
+
+/* Projects (T-20): a filter beside the search, one band of lanes per project, and a quiet tag on cards. */
+.project-filter { width: auto; max-width: 200px; }
+.project-tag { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); font-weight: 600; padding: 1px 9px; font-size: 12px; }
+.project-swim { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+.project-swim > h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0; }
+.project-swim > .kanban { min-height: 0; }
+.project-swim > .kanban .lane { min-height: 120px; }
+button.small { padding: 3px 10px; font-size: 13px; }
+.roster.projects button.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.roster.projects .n { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }

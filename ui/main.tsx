@@ -8,6 +8,7 @@ import { Icon, type IconName } from './icons';
 import { AgentStrip, Avatar, Badge, BoardContext, mayDecide, Brand, BuiltOn, Empty, Field, Form, Modal, Who, useCtx, type Ctx } from './kit';
 import { Activity, Costs, Reviews } from './misc';
 import { Tasks } from './tasks';
+import { NONE, projectsOf, useProject } from './projects';
 import { Profile } from './profile';
 import { unreadCount, useUnread } from './unread';
 import { listenToRoute, parseRoute, routeHash } from './route';
@@ -142,6 +143,7 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
               </button>
             ))}
           </div>
+          <Projects board={board} onOpen={() => route.view !== 'tasks' && open('tasks')} />
           <div className="section roster">
             <h3>Agents</h3>
             {board.agents.filter((a) => a.status !== 'revoked').map((a) => (
@@ -275,3 +277,23 @@ class Guard extends Component<{ children: ReactNode }, { fault: string }> {
 }
 
 createRoot(document.getElementById('root')!).render(<StrictMode><Guard><App /></Guard></StrictMode>);
+
+/** The board's projects, each with what is still going on in it; choosing one narrows the Board to it. */
+function Projects({ board, onOpen }: { board: { tasks: Row[] }; onOpen: () => void }) {
+  const [project, setProject] = useProject();
+  const projects = projectsOf(board.tasks);
+  if (projects.length === 0) return null;
+  const choose = (p: string): void => { setProject(p); onOpen(); };
+  return (
+    <div className="section roster projects">
+      <h3>Projects</h3>
+      <button className={project === '' ? 'on' : ''} onClick={() => choose('')}><span className="grow">All projects</span></button>
+      {projects.map((p) => (
+        <button key={p.name} className={project === p.name ? 'on' : ''} onClick={() => choose(p.name)} title={`${p.open} still going on of ${p.total}`}>
+          <span className="grow">{p.name}</span><span className="n" aria-label={`${p.open} open`}>{p.open}</span>
+        </button>
+      ))}
+      {board.tasks.some((t) => !t.project) && <button className={project === NONE ? 'on' : ''} onClick={() => choose(NONE)}><span className="grow muted">No project</span></button>}
+    </div>
+  );
+}

@@ -249,6 +249,12 @@ export function openBoard(options: BoardOptions): Board {
   /** The ids of the private tasks this actor may not know of. */
   const hidden = (actor: Actor): string[] => (isAdmin(actor) ? [] : store.ask(`(select {from: tasks where: (== private 1)})`).filter((t) => !canSee(actor, t)).map((t) => t.id as string));
   /** Names or ids, separated by spaces or commas, as ids. */
+  /** A project is named as a repository is, compared without case: "RayForce" and "rayforce" are one project. */
+  const projectName = (text: string): string => {
+    const name = text.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) bad('invalid', 'a project name is 1 to 64 of a-z, 0-9, ".", "-" and "_", starting with a letter or digit');
+    return name;
+  };
   const several = (text: string): string[] => [...new Set(text.split(/[\s,]+/).filter((ref) => ref !== '').map((ref) => someone(ref).id))];
   const names = (): Map<string, string> => new Map([...directory().byId].map(([id, a]) => [id, a.name]));
 
@@ -411,15 +417,17 @@ export function openBoard(options: BoardOptions): Board {
         status: { type: 'string', description: 'Only tasks in this status, or "all".', enum: [...STATUSES, 'all'] },
         assignee: str('Only tasks of this agent or person; "me" for your own, "none" for unassigned ones anyone can claim.', 40),
         parent: str('Only subtasks of this task.', 16),
+        project: str('Only tasks of this project; "none" for those without one.', 64),
         limit: { type: 'integer', description: 'At most this many (default 50).', min: 1, max: 500 },
       },
       run(actor, p) {
+        const project = p.project === undefined ? null : p.project === 'none' ? '' : projectName(p.project as string);
         const assignee = p.assignee === undefined ? null : p.assignee === 'me' ? actor.id : p.assignee === 'none' ? '' : someone(p.assignee as string).id;
         const parent = p.parent === undefined ? null : (task(actor, p.parent as string).id as string);
         const wanted: string[] = p.status === 'all' ? [...STATUSES] : p.status !== undefined ? [p.status as string] : [...OPEN_STATUSES];
         const rows = store.ask(`(select {from: tasks where: (in status (at rb_q 'q0)) desc: seq})`, { sym: wanted });
         return rows
-          .filter((t) => canSee(actor, t) && (assignee === null || t.assignee === assignee) && (parent === null || t.parent === parent))
+          .filter((t) => canSee(actor, t) && (assignee === null || t.assignee === assignee) && (parent === null || t.parent === parent) && (project === null || t.project === project))
           .slice(0, (p.limit as number | undefined) ?? 50)
           .map(({ body: _body, ...rest }) => shown(actor, rest));
       },
@@ -621,19 +629,22 @@ export function openBoard(options: BoardOptions): Board {
         participants: str('Who else takes part, names separated by spaces: they are told of what happens to it.', 400),
         private: { type: 'boolean', description: 'Only its creator, its holder, its reviewer, its participants and the people overseeing the board see it or anything about it.' },
         parent: str('The task this is a part of.', 16),
+        project: str('What it belongs to, such as rayforce or rayboard: lower-case letters, digits, ".", "-" and "_". A subtask takes its parent\'s when this is left out.', 64),
         priority: { type: 'integer', description: '0 low, 1 normal (default), 2 high, 3 urgent.', min: 0, max: 3 },
         review: { type: 'string', description: '"required" (default): it is done only when someone other than its author approves it. "optional": the assignee may complete it alone.', enum: ['required', 'optional'] },
       },
       run(actor, p) {
         const assignee = p.assignee === undefined ? null : available(p.assignee as string);
-        const parent = p.parent === undefined ? '' : (task(actor, p.parent as string).id as string);
+        const above = p.parent === undefined ? null : task(actor, p.parent as string);
+        const parent = above === null ? '' : (above.id as string);
+        const project = p.project !== undefined ? projectName(p.project as string) : ((above?.project as string | undefined) ?? '');
         const participants = several((p.participants as string | undefined) ?? '');
         tasksMade += 1;
         const at = now().toISOString();
         const t: Row = {
           id: `T-${tasksMade}`, title: p.title as string, body: (p.body as string | undefined) ?? '', status: 'open', creator: actor.id, assignee: assignee?.id ?? '', reviewer: '',
           parent, priority: (p.priority as number | undefined) ?? 1, review: (p.review as string | undefined) ?? 'required', result: '', created: at, updated: at, seq: seq + 1,
-          outcome: p.outcome as string, next: (p.next as string | undefined) ?? '', participants: participants.join(' '), private: p.private === true ? 1 : 0, rev: 1, dependency: '', check: '',
+          outcome: p.outcome as string, next: (p.next as string | undefined) ?? '', participants: participants.join(' '), private: p.private === true ? 1 : 0, rev: 1, dependency: '', check: '', project,
         };
         commit('task.created', actor.id, t.id as string, `${actor.name} created ${t.id}: ${clip(t.title as string)}${assignee ? ` for ${assignee.name}` : ''}`, { tasks: [t] }, [
           ...(assignee ? [{ dest: assignee.id, type: 'task.assigned', subject: t.id as string, text: `${actor.name} gave you ${t.id}: ${t.title}` }] : []),
@@ -643,7 +654,7 @@ export function openBoard(options: BoardOptions): Board {
       },
     },
     update_task: {
-      description: 'Change what a task says: its title, description, outcome, next action, priority, participants or privacy. Its creator, whoever holds it, or a person may. You must pass the `rev` you read, so that two changes made at once cannot silently overwrite each other.',
+      description: 'Change what a task says: its title, description, outcome, next action, priority, project, participants or privacy. Its creator, whoever holds it, or a person may. You must pass the `rev` you read, so that two changes made at once cannot silently overwrite each other.',
       who: 'any', mutates: true,
       params: {
         task: TASK,
@@ -653,6 +664,7 @@ export function openBoard(options: BoardOptions): Board {
         outcome: str('What can be observed when it is done.', 2000),
         next: str('The next concrete action.', 500),
         priority: { type: 'integer', description: '0 low, 1 normal, 2 high, 3 urgent.', min: 0, max: 3 },
+        project: str('The project it belongs to; "none" for none.', 64),
         participants: str('The full new list of participants, names separated by spaces; "none" for nobody.', 400),
         private: { type: 'boolean', description: 'Whether only its parties and the people overseeing the board see it. Only its creator or a person changes this.' },
       },
@@ -664,6 +676,7 @@ export function openBoard(options: BoardOptions): Board {
         if (actor.kind !== 'user' && (t.status === 'done' || t.status === 'cancelled')) bad('conflict', `${t.id} is ${t.status}; a person reopens it before it changes`);
         const change: Record<string, string | number> = {};
         for (const key of ['title', 'body', 'outcome', 'next', 'priority'] as const) if (p[key] !== undefined) change[key] = p[key] as string | number;
+        if (p.project !== undefined) change.project = p.project === 'none' ? '' : projectName(p.project as string);
         if (p.participants !== undefined) change.participants = p.participants === 'none' ? '' : several(p.participants as string).join(' ');
         if (p.private !== undefined) change.private = p.private === true ? 1 : 0;
         const changed = Object.keys(change).filter((key) => change[key] !== t[key]);
@@ -1175,6 +1188,8 @@ export function openBoard(options: BoardOptions): Board {
 Reported by @${item.author} on GitHub. The conversation with its author stays there.`,
           status: 'open', creator: 'github', assignee: '', reviewer: '', parent: '', priority: 1, review: 'required', result: '', created: at, updated: at, seq: seq + 1,
           outcome: `Resolved on GitHub: ${item.url}`, next: '', participants: '', private: repo.private ? 1 : 0, rev: 1, dependency: '', check: '',
+          // Its repository is its project; a person may move it elsewhere later, and GitHub never moves it back.
+          project: projectName(short),
         };
         const g: Row = { id: key, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id };
         commit('github.imported', 'github', t.id as string, `GitHub ${label} came in as ${t.id}: ${clip(item.title)}`, { tasks: [t], gh_items: [g], gh_deliveries: [receipt('applied')], ...settings });

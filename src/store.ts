@@ -44,6 +44,8 @@ export const SCHEMA = {
       rev: 'i64',
       /** While waiting or blocked: on what, and what to check next and when. */
       dependency: 'str', check: 'str',
+      /** What it belongs to: a repository's name for what came from GitHub, otherwise what a person or agent chose; '' for none. */
+      project: 'str',
     },
   },
   /** What shows that work was done, and what was done outside the board so that nobody does it twice. */
