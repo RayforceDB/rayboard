@@ -98,7 +98,7 @@ if (command === 'serve') {
     const answers = new Map<string, string>();
     challenges = challengeListener(host, httpPort, domain, answers, port);
     const directory = flag('acme-directory', 'RAYBOARD_ACME_DIRECTORY') ?? (args.includes('--acme-staging') ? LETS_ENCRYPT_STAGING : LETS_ENCRYPT);
-    const acme = new Acme(directory, store.account());
+    const acme = new Acme(directory, store.account(), fetch, undefined, store.accountUrl());
     const obtain = async (): Promise<void> => {
       log(`tls: asking ${new URL(directory).host} for a certificate for ${domain}`);
       const issued = await acme.issue(domain, (token, answer) => { if (answer === null) answers.delete(token); else answers.set(token, answer); });

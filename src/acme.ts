@@ -72,7 +72,24 @@ export class Acme {
     private readonly account: KeyObject,
     private readonly get: Fetch = fetch,
     private readonly wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+    /** The account's URL from an earlier run, and where to keep it once known: newAccount is asked only once. */
+    private readonly known: { load(): string; save(url: string): void } = { load: () => '', save: () => {} },
   ) {}
+
+  /**
+   * The account's URL (the `kid` every later request is signed with). newAccount is signed with the key itself and
+   * answers 201 for a new account or 200 for this key's existing one, both with Location (RFC 8555 7.3, 7.3.1).
+   */
+  private async accountUrl(): Promise<string> {
+    if (this.kid !== '') return this.kid;
+    const kept = this.known.load();
+    if (kept !== '') return (this.kid = kept);
+    const r = await this.post((await this.dir()).newAccount!, { termsOfServiceAgreed: true });
+    const url = r.headers.get('location') ?? '';
+    if (url === '') throw new Error(`ACME: newAccount answered ${r.status} without the account's URL`);
+    this.known.save(url);
+    return (this.kid = url);
+  }
 
   private async dir(): Promise<Record<string, string>> {
     this.dirs ??= (await (await this.get(this.directory)).json()) as Record<string, string>;
@@ -94,6 +111,8 @@ export class Acme {
     if (!r.ok) {
       const problem = (await r.clone().json().catch(() => ({}))) as { type?: string; detail?: string };
       if (retry && problem.type === 'urn:ietf:params:acme:error:badNonce') return this.post(url, payload, accept, false);
+      // An account URL kept from before that the server no longer knows: forget it, and the next try registers again.
+      if (this.kid !== '' && problem.type === 'urn:ietf:params:acme:error:accountDoesNotExist') { this.kid = ''; this.known.save(''); }
       throw new Error(`ACME ${url.replace(/^https?:\/\/[^/]+/, '')}: ${r.status} ${problem.detail ?? problem.type ?? ''}`.trim());
     }
     return r;
@@ -110,9 +129,7 @@ export class Acme {
 
   async issue(domain: string, publish: (token: string, answer: string | null) => void): Promise<Issued> {
     const d = await this.dir();
-    const account = await this.post(d.newAccount!, { termsOfServiceAgreed: true });
-    this.kid = account.headers.get('location') ?? '';
-    if (this.kid === '') throw new Error('ACME: the account has no URL');
+    await this.accountUrl();
     const placed = await this.post(d.newOrder!, { identifiers: [{ type: 'dns', value: domain }] });
     const orderUrl = placed.headers.get('location') ?? '';
     const order = (await placed.json()) as { authorizations: string[]; finalize: string };
@@ -152,6 +169,14 @@ export class CertStore {
       writeFileSync(this.path('account.pem'), key.export({ type: 'pkcs8', format: 'pem' }) as string, { mode: 0o600 });
     }
     return createPrivateKey(readFileSync(this.path('account.pem'), 'utf8'));
+  }
+  /** Where the account's URL is kept between runs, so newAccount is asked once per key. */
+  accountUrl(): { load(): string; save(url: string): void } {
+    const file = this.path('account.url');
+    return {
+      load: () => (existsSync(file) ? readFileSync(file, 'utf8').trim() : ''),
+      save: (url) => writeFileSync(file, url, { mode: 0o600 }),
+    };
   }
   /** The certificate held for `domain`, if any, with when it expires. */
   current(domain: string): Issued | null {

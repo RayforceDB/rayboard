@@ -15,6 +15,7 @@ function fakeAcme(answers: Map<string, string>, o: { badNonceOnce?: boolean } = 
   const base = 'https://acme.test';
   const nonces = new Set<string>();
   const accounts = new Map<string, Record<string, string>>();
+  const stats = { newAccount: 0 };
   let n = 0;
   let order: { status: string; cert?: string } = { status: 'pending' };
   let authz = 'pending';
@@ -35,13 +36,21 @@ function fakeAcme(answers: Map<string, string>, o: { badNonceOnce?: boolean } = 
     if (!nonces.delete(head.nonce)) return reply({ type: 'urn:ietf:params:acme:error:badNonce' }, { status: 400 });
     if (head.url !== url || head.alg !== 'ES256') return reply({ type: 'malformed' }, { status: 400 });
     const key = head.jwk ?? accounts.get(head.kid ?? '');
-    if (key === undefined) return reply({ type: 'accountDoesNotExist' }, { status: 400 });
+    if (key === undefined) return reply({ type: 'urn:ietf:params:acme:error:accountDoesNotExist' }, { status: 400 });
     const ok = verify('sha256', Buffer.from(`${jws.protected}.${jws.payload}`), { key: createPublicKey({ key, format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(jws.signature, 'base64url'));
     if (!ok) return reply({ type: 'unauthorized', detail: 'bad signature' }, { status: 403 });
     const payload = jws.payload === '' ? null : JSON.parse(Buffer.from(jws.payload, 'base64url').toString());
     const thumb = Buffer.from(createHash('sha256').update(JSON.stringify({ crv: key.crv, kty: key.kty, x: key.x, y: key.y })).digest()).toString('base64url');
     switch (path) {
-      case '/account': accounts.set(`${base}/acct/1`, head.jwk!); return reply({ status: 'valid' }, { status: 201, headers: { Location: `${base}/acct/1` } });
+      case '/account': {
+        // RFC 8555 7.3: newAccount is signed with the key itself, never a kid; a key already known answers 200, same Location.
+        if (head.jwk === undefined) return reply({ type: 'urn:ietf:params:acme:error:malformed', detail: 'newAccount needs jwk' }, { status: 400 });
+        stats.newAccount++;
+        const url = `${base}/acct/${thumb}`;
+        const existing = accounts.has(url);
+        accounts.set(url, head.jwk);
+        return reply({ status: 'valid' }, { status: existing ? 200 : 201, headers: { Location: url } });
+      }
       case '/order': return reply({ status: 'pending', authorizations: [`${base}/authz/1`], finalize: `${base}/finalize` }, { status: 201, headers: { Location: `${base}/order/1` } });
       case '/authz/1': return reply({ status: authz, challenges: [{ type: 'http-01', url: `${base}/chall/1`, token }] });
       case '/chall/1':
@@ -60,7 +69,9 @@ function fakeAcme(answers: Map<string, string>, o: { badNonceOnce?: boolean } = 
     }
     return reply({ type: 'notFound' }, { status: 404 });
   };
-  return { fetch, directory: `${base}/dir` };
+  /** Lets the same server issue again, as a renewal would ask it to. */
+  const again = () => { order = { status: 'pending' }; authz = 'pending'; };
+  return { fetch, directory: `${base}/dir`, stats, again, forget: () => accounts.clear() };
 }
 
 test('a certificate is obtained by answering the HTTP-01 challenge, through a signed exchange, and the answer is taken down after', async () => {
@@ -140,6 +151,71 @@ test('a renewed certificate is taken up by the running server without a restart'
     await Bun.sleep(100);
     expect(await subject()).toContain('second');
     expect((await fetch(`${server.url}/api/session`, { tls: { rejectUnauthorized: false } } as RequestInit)).status).toBe(200);
+  } finally {
+    await server.stop();
+  }
+});
+
+const publishTo = (answers: Map<string, string>) => (token: string, answer: string | null) => { if (answer === null) answers.delete(token); else answers.set(token, answer); };
+
+test('the account is registered once: a renewal in the same run, and a later run with the kept URL, sign with its kid', async () => {
+  const answers = new Map<string, string>();
+  const fake = fakeAcme(answers);
+  const account = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+  let kept = '';
+  const known = { load: () => kept, save: (url: string) => { kept = url; } };
+  const acme = new Acme(fake.directory, account, fake.fetch, async () => {}, known);
+  await acme.issue('work.example.org', publishTo(answers));
+  expect(fake.stats.newAccount).toBe(1);
+  expect(kept).toContain('/acct/');
+  fake.again();
+  await acme.issue('work.example.org', publishTo(answers));
+  fake.again();
+  const later = new Acme(fake.directory, account, fake.fetch, async () => {}, known);
+  await later.issue('work.example.org', publishTo(answers));
+  expect(fake.stats.newAccount).toBe(1);
+});
+
+test('a key the server already has is found again by newAccount (200 with its Location), and a forgotten account registers anew', async () => {
+  const answers = new Map<string, string>();
+  const fake = fakeAcme(answers);
+  const account = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+  await new Acme(fake.directory, account, fake.fetch, async () => {}).issue('work.example.org', publishTo(answers));
+  fake.again();
+  // A run that kept no URL: the server answers 200 for this key.
+  await new Acme(fake.directory, account, fake.fetch, async () => {}).issue('work.example.org', publishTo(answers));
+  expect(fake.stats.newAccount).toBe(2);
+  // A kept URL the server no longer knows: this try fails and forgets it; the next one registers again.
+  fake.again();
+  let kept = '';
+  const known = { load: () => kept, save: (url: string) => { kept = url; } };
+  const acme = new Acme(fake.directory, account, fake.fetch, async () => {}, known);
+  await acme.issue('work.example.org', publishTo(answers));
+  fake.forget();
+  fake.again();
+  await expect(acme.issue('work.example.org', publishTo(answers))).rejects.toThrow();
+  expect(kept).toBe('');
+  fake.again();
+  await acme.issue('work.example.org', publishTo(answers));
+  expect(kept).toContain('/acct/');
+});
+
+test('renewals never overlap: a slow one is not joined by the next timer', async () => {
+  const { openBoard } = await import('../src/board');
+  const { startServer } = await import('../src/server');
+  const { sharedRay, tempDir } = await import('./helpers');
+  const dir = tempDir();
+  sh(`openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout ${dir}/key.pem -out ${dir}/cert.pem -days 1 -subj "/CN=x"`);
+  const board = openBoard({ ray: await sharedRay(), base: join(dir, 'board') });
+  let running = 0;
+  let most = 0;
+  let calls = 0;
+  const server = startServer({ board, host: '127.0.0.1', port: 0, behindProxy: false, ui: dir, log: () => {}, tls: { cert: `${dir}/cert.pem`, key: `${dir}/key.pem` },
+    renew: async () => { calls++; running++; most = Math.max(most, running); await Bun.sleep(150); running--; return false; }, renewFirstMs: 10, renewEveryMs: 20 });
+  try {
+    await Bun.sleep(400);
+    expect(calls).toBeGreaterThan(1);
+    expect(most).toBe(1);
   } finally {
     await server.stop();
   }

@@ -48,6 +48,8 @@ export interface ServerOptions {
   renew?: () => Promise<boolean>;
   /** When the first renewal check runs after start; a minute unless a test says otherwise. */
   renewFirstMs?: number;
+  /** How often renewal is checked after that; daily unless a test says otherwise. */
+  renewEveryMs?: number;
 }
 
 export interface Server {
@@ -461,7 +463,10 @@ export function startServer(o: ServerOptions): Server {
   let server = listen(o.port);
   // Renewal: daily, and a minute after start. A failure is said and tried again the next day; the old certificate stays.
   const renewing = o.renew;
-  const renewOnce = async (): Promise<void> => {
+  // One renewal at a time: a slow exchange is not joined by the next timer's.
+  let renewal: Promise<void> | null = null;
+  const renewOnce = (): Promise<void> => (renewal ??= renewNow().finally(() => { renewal = null; }));
+  const renewNow = async (): Promise<void> => {
     if (!renewing) return;
     try {
       if (!(await renewing())) return;
@@ -473,7 +478,7 @@ export function startServer(o: ServerOptions): Server {
       o.log(`tls: renewal failed, the current certificate stays: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
-  const renewTimer = renewing ? setInterval(() => void renewOnce(), 24 * 3_600_000) : undefined;
+  const renewTimer = renewing ? setInterval(() => void renewOnce(), o.renewEveryMs ?? 24 * 3_600_000) : undefined;
   const renewFirst = renewing ? setTimeout(() => void renewOnce(), o.renewFirstMs ?? 60_000) : undefined;
 
   // The feed says that something changed and what; the dashboard asks for what it shows through the API, as itself.
