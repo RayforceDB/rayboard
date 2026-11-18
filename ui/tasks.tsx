@@ -9,6 +9,7 @@ import { NONE, inProject, projectsOf, useProject } from './projects';
 import { GithubMark, ProjectMark, TaskNumber, useShownTitle } from './marks';
 import { imageHandlers } from './images';
 import { Sent } from './sent';
+import { onAskOnlyUpdated, takeOnlyUpdated } from './updated';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -29,7 +30,8 @@ export function Tasks({ item }: { item: string }) {
   const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
   /** Only the tasks changed by someone else since this person last opened them (Anton: which of many have news?). */
-  const [onlyUpdated, setOnlyUpdated] = useState(false);
+  const [onlyUpdated, setOnlyUpdated] = useState(takeOnlyUpdated);
+  useEffect(() => onAskOnlyUpdated(() => { takeOnlyUpdated(); setOnlyUpdated(true); }), []);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState('');
   const [dropLane, setDropLane] = useState('');

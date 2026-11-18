@@ -14,6 +14,7 @@ import { ProjectMark } from './marks';
 import { Profile } from './profile';
 import { unreadCount, useUnread } from './unread';
 import { conversationsOf, useTabSignal } from './tabsignal';
+import { askOnlyUpdated } from './updated';
 import { listenToRoute, parseRoute, routeHash } from './route';
 import { ResizeHandle, panelWidth } from './resize';
 
@@ -153,7 +154,9 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
               <button key={view} className={route.view === view ? 'on' : ''} onClick={() => open(view)}>
                 <Icon name={icon} size={24} />
                 {label}
-                {counts[view] ? <span className="count" title={COUNT_MEANS[view]?.(counts[view]!)}>{counts[view]}</span> : null}
+                {counts[view] ? (view === 'tasks'
+                  ? <span className="count link" role="button" tabIndex={0} title={`${COUNT_MEANS[view]?.(counts[view]!)}. Click to show only them.`} onClick={(e) => { e.stopPropagation(); askOnlyUpdated(); open('tasks'); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); askOnlyUpdated(); open('tasks'); } }}>{counts[view]}</span>
+                  : <span className="count" title={COUNT_MEANS[view]?.(counts[view]!)}>{counts[view]}</span>) : null}
               </button>
             ))}
           </div>

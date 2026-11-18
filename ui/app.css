@@ -582,3 +582,5 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 .updated-strip .updated-link .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .updated-strip .check { margin-left: auto; }
 .unread-chip { color: var(--accent-text); background: var(--accent-soft); border-color: transparent; }
+.count.link { cursor: pointer; }
+.count.link:hover { filter: brightness(1.1); box-shadow: 0 0 0 2px var(--accent-soft); }
