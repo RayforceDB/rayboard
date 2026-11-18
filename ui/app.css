@@ -465,9 +465,8 @@ button.small { padding: 3px 10px; font-size: 13px; }
 .project-swim.unfiled { border-top: 1px dashed var(--line-strong); padding-top: 14px; }
 
 /* Project marks and task numbers (T-20). */
-.project-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 28%; color: #fff; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-family: inherit; text-shadow: 0 1px 1px rgb(0 0 0 / 0.18); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 1px 2px rgb(0 0 0 / 0.12); }
+.project-mark { display: inline-flex; flex: none; line-height: 0; }
 .project-tag { gap: 5px; padding-left: 3px; }
-.project-tag .project-mark { border-radius: 4px; }
 .task-no { font-family: inherit; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .task-no.gh { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-weight: 600; }
 .task-no .gh-mark { color: var(--muted); }

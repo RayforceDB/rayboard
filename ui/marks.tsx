@@ -1,5 +1,6 @@
 import type { Row } from './api';
 import { useCtx } from './kit';
+import { Icon } from './icons';
 
 /** Twelve hues spaced around the wheel, in an order that keeps neighbours apart: the first projects differ most. */
 const HUES = [18, 210, 140, 285, 48, 175, 330, 95, 245, 0, 160, 65];
@@ -28,16 +29,14 @@ export function initials(name: string): string {
 }
 
 /** A project's mark: its initials on a tile of its own colour. */
+/**
+ * A project's mark: the board's own line folder, drawn like every other icon here, in the project's colour.
+ * The colour tells projects apart; the name beside it says which.
+ */
 export function ProjectMark({ name, size = 18 }: { name: string; size?: number }) {
   const { board } = useCtx();
   const hue = hueOf(name, board.tasks.map((t) => (t.project as string | undefined) ?? '').filter((p) => p !== ''));
-  const text = initials(name);
-  // A solid tile with a white letter, like an app's icon; the light falls from the top.
-  return (
-    <span className="project-mark" aria-hidden="true" style={{ width: size, height: size, fontSize: Math.round(size * (text.length > 1 ? 0.42 : 0.55)), background: `linear-gradient(160deg, hsl(${hue} 70% 58%), hsl(${hue} 62% 44%))` }}>
-      {text}
-    </span>
-  );
+  return <span className="project-mark" aria-hidden="true" style={{ color: `hsl(${hue} 58% 44%)` }}><Icon name="folder" size={size} /></span>;
 }
 
 export function GithubMark({ size = 13 }: { size?: number }) {
