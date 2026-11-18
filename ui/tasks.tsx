@@ -54,7 +54,10 @@ export function Tasks({ item }: { item: string }) {
   // Only work still going on is marked: it is what the sidebar counts, and a change to finished work asks nothing.
   const unreadRow = (t: Row) => t.status !== 'done' && t.status !== 'cancelled' && unread(t);
   const q = query.trim().toLowerCase();
-  const updated = board.tasks.filter((t) => unreadRow(t) && inProject(t, project)).sort((x, y) => Number(y.last ?? 0) - Number(x.last ?? 0));
+  const updatedAll = board.tasks.filter((t) => unreadRow(t)).sort((x, y) => Number(y.last ?? 0) - Number(x.last ?? 0));
+  const updated = updatedAll.filter((t) => inProject(t, project));
+  // The sidebar counts every project; a chosen project must not make the rest look like nothing (Anton: "nothing updated while the count says 3").
+  const elsewhere = updatedAll.length - updated.length;
   const shown = board.tasks.filter((t) => inProject(t, project) && (!onlyUpdated || unreadRow(t)) && (q === '' || `${t.id} ${t.title} ${name(t.assignee)} ${t.project ?? ''}`.toLowerCase().includes(q)));
   const lanesOf = (among: Row[]) => [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
     const tasks = among.filter((t) => (lane.has as readonly string[]).includes(t.status));
@@ -126,15 +129,16 @@ export function Tasks({ item }: { item: string }) {
           {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(project !== NONE && project !== '' ? project : true)}><Icon name="plus" />New task</button>}
         </header>
         <AgentStrip />
-        {(updated.length > 0 || onlyUpdated) && (
+        {(updatedAll.length > 0 || onlyUpdated) && (
           <section className="updated-strip" aria-label="Updated since you last opened them">
-            <span className="what"><i className="new" aria-hidden="true" />{updated.length === 0 ? 'Nothing updated' : `${updated.length} updated since you last opened ${updated.length === 1 ? 'it' : 'them'}`}</span>
+            <span className="what"><i className="new" aria-hidden="true" />{updated.length === 0 ? (elsewhere > 0 ? 'Nothing updated in this project' : 'Nothing updated') : `${updated.length} updated since you last opened ${updated.length === 1 ? 'it' : 'them'}`}</span>
             {updated.slice(0, 6).map((t) => (
               <button key={t.id as string} className="updated-link" onClick={() => open('tasks', t.id as string)} title={`${t.id}: ${t.title}`}>
                 <TaskNumber t={t} /><span className="title">{t.title as string}</span>
               </button>
             ))}
             {updated.length > 6 && !onlyUpdated && <span className="muted">and {updated.length - 6} more</span>}
+            {elsewhere > 0 && <button className="link" onClick={() => setProject('')}>{elsewhere} more in other projects: show all projects</button>}
             <label className="check"><input type="checkbox" checked={onlyUpdated} onChange={(e) => setOnlyUpdated(e.target.checked)} /> Only updated</label>
           </section>
         )}
