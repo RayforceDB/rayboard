@@ -547,7 +547,10 @@ export function startServer(o: ServerOptions): Server {
   const renewFirst = renewing ? setTimeout(() => void renewOnce(), o.renewFirstMs ?? 60_000) : undefined;
 
   // The feed says that something changed and what; the dashboard asks for what it shows through the API, as itself.
-  // Each socket is told only while its session lasts, and of a private task only if its person may see it.
+  // Each socket is told only while its session lasts, and of a private task or a DM only if its person may know of
+  // it: someone who may not is told nothing, not even that it moved (Mattew, T-478). Only a page that was told of
+  // a subject and may no longer know of it (a task made private) gets one bare word, so it looks again and drops it.
+  const knew = new WeakMap<object, Set<string>>();
   board.onChange((entry) => {
     // A task's status changing may change what its GitHub label should say.
     // Any change on a task but GitHub's own (a review asked or decided moves it too); cheap when nothing differs.
@@ -562,7 +565,12 @@ export function startServer(o: ServerOptions): Server {
         ws.close(4401, 'the session ended');
         continue;
       }
-      ws.send(o.unsafe !== undefined || board.mayKnow(user, entry.subject) ? full : bare);
+      if (o.unsafe !== undefined || board.mayKnow(user, entry.subject)) {
+        ws.send(full);
+        if (/^T-\d+$/.test(entry.subject)) (knew.get(ws) ?? knew.set(ws, new Set()).get(ws)!).add(entry.subject);
+      } else if (knew.get(ws)?.delete(entry.subject)) {
+        ws.send(bare);
+      }
     }
   });
   const typingSweep = setInterval(() => {

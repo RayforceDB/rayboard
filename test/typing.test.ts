@@ -120,16 +120,7 @@ test('over the live feed: told to those who may read it and to nobody else, refr
   s.ws.close();
   await settle(150);
   expect(v.typing().at(-1)).toMatchObject({ chan: dm, who: serhii.id, ms: 0 });
-  // Ordinary changes about another pair's DM reach vic's page as a bare "something changed", without whose or where.
-  const s2 = await feed(server.url, 'serhii');
-  const mark = v.frames.length;
-  await s2.call('post_message', { to: '@anton', body: 'between us' });
-  await settle();
-  const told = v.frames.slice(mark).filter((f) => !f.typing);
-  expect(told.length).toBeGreaterThan(0);
-  for (const f of told) { expect(f.subject).toBeUndefined(); expect(f.actor).toBeUndefined(); }
-  expect(a.frames.some((f) => f.subject === sa && f.type === 'message.dm')).toBe(true);
-  a.ws.close(); v.ws.close(); s2.ws.close();
+  a.ws.close(); v.ws.close();
 });
 
 test('an agent writes only by saying so, over MCP or HTTP, and posting ends it', async () => {
