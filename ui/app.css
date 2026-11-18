@@ -525,7 +525,7 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 .picker-button[aria-expanded="true"], .picker-button:focus-visible { outline: none; border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong)); box-shadow: 0 0 0 3px var(--accent-soft); }
 .picker-button.chosen { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); font-weight: 600; }
 .picker-button .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.picker-list { position: absolute; top: calc(100% + 6px); right: 0; min-width: 240px; max-height: 360px; overflow-y: auto; display: grid; gap: 2px; padding: 6px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: var(--shadow-lift); z-index: 40; }
+.picker-list { position: absolute; top: calc(100% + 6px); left: 0; min-width: 240px; max-width: calc(100vw - 32px); max-height: 360px; overflow-y: auto; display: grid; gap: 2px; padding: 6px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: var(--shadow-lift); z-index: 40; }
 .picker-list button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; border: none; background: transparent; padding: 8px 10px; border-radius: var(--r-sm); text-align: left; font-weight: 450; }
 .picker-list button.at { background: var(--raised); }
 .picker-list button.on { color: var(--accent-text); font-weight: 600; }
