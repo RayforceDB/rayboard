@@ -5,6 +5,7 @@ import { Empty, Field, Form, Modal, Who, useCtx } from './kit';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
+import { Sent } from './sent';
 
 export function Chat({ item }: { item: string }) {
   const { board, tick, act, open, me, name, unread, markRead } = useCtx();
@@ -13,6 +14,9 @@ export function Chat({ item }: { item: string }) {
   const [creating, setCreating] = useState(false);
   const [listWidth, setListWidth] = useState(() => panelWidth('conversations', 220, 180, 360));
   const end = useRef<HTMLDivElement>(null);
+  const sentHere = useRef(new Sent()).current;
+  // Reads can come back out of order; only the last one started is shown.
+  const reads = useRef(0);
   const current = item || (board.channels[0]?.id as string | undefined) || '';
   const channel = board.channels.find((c) => c.id === current);
   const dmLabel = (chan: string): string => chan.split(':').slice(1).filter((id) => id !== me.id).map(name).join(' and ');
@@ -20,7 +24,8 @@ export function Chat({ item }: { item: string }) {
 
   useEffect(() => {
     if (current === '') return setMessages([]);
-    void api.call<Row[]>('read_messages', { from: current, limit: 200 }).then((next) => { setMessages(next); const last=next[next.length-1]; if(last) markRead(current,Number(last.seq)); }, () => setMessages([]));
+    const n = ++reads.current;
+    void api.call<Row[]>('read_messages', { from: current, limit: 200 }).then((read) => { if (n !== reads.current) return; const next = sentHere.merge(current, read); setMessages(next); const last=next[next.length-1]; if(last) markRead(current,Number(last.seq)); }, () => setMessages([]));
   }, [current, tick, markRead]);
   // In braces on purpose: newer browsers return a promise from scrollIntoView, and whatever an effect
   // returns React calls as its cleanup when the view is left.
@@ -35,6 +40,7 @@ export function Chat({ item }: { item: string }) {
     // Shown at once from the server's answer, not after the next look at the whole board.
     const ok = await act(async () => {
       const sent = await api.call<Row>('post_message', { to, body });
+      sentHere.add(current, sent);
       setMessages((ms) => (ms.some((m) => m.id === sent.id) ? ms : [...ms, sent]));
     });
     if (ok) setText('');

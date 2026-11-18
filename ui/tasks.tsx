@@ -8,6 +8,7 @@ import { ResizeHandle, panelWidth } from './resize';
 import { NONE, inProject, projectsOf, useProject } from './projects';
 import { GithubMark, ProjectMark, TaskNumber, useShownTitle } from './marks';
 import { imageHandlers } from './images';
+import { Sent } from './sent';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -356,7 +357,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const [to, setTo] = useState('');
   const [sub, setSub] = useState(false);
   const [copied, setCopied] = useState(false);
-  useEffect(() => void api.call('get_task', { task: id }).then((next) => { setD(next); markRead(id,Math.max(next.task.seq??0,...next.thread.map((m:Row)=>Number(m.seq??0)))); }, (e: Error) => setMissing(e.message)), [id, tick, markRead]);
+  const sentHere = useRef(new Sent()).current;
+  // Reads can come back out of order; only the last one started is shown.
+  const reads = useRef(0);
+  useEffect(() => { const n = ++reads.current; void api.call('get_task', { task: id }).then((got) => { if (n !== reads.current) return; const next = { ...got, thread: sentHere.merge(id, got.thread) }; setD(next); markRead(id,Math.max(next.task.seq??0,...next.thread.map((m:Row)=>Number(m.seq??0)))); }, (e: Error) => setMissing(e.message)); }, [id, tick, markRead]);
   useEffect(() => {
     if (tab === 'activity') void api.call<Row[]>('activity', { subject: id, limit: 100 }).then(setEvents, () => setEvents([]));
   }, [id, tick, tab]);
@@ -380,6 +384,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     // Shown at once from the server's answer, not after the next look at the whole board.
     const ok = await act(async () => {
       const sent = await api.call<Row>('post_message', { to: t.id, body });
+      sentHere.add(t.id as string, sent);
       setD((cur) => (cur === null || cur.task.id !== t.id || cur.thread.some((m) => m.id === sent.id) ? cur : { ...cur, thread: [...cur.thread, sent] }));
     });
     if (ok) setComment('');
