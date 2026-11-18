@@ -1,4 +1,4 @@
-import { heardTyping, type Typing } from './typing';
+import { heardTyping, TAB, type TypingFrame } from './typing';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type Row = Record<string, any>;
@@ -90,13 +90,13 @@ export function useBoard(onSignedOut: () => void): { board: Snapshot | null; tic
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
     const connect = (): void => {
-      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+      socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?tab=${TAB}`);
       socket.onopen = () => {
         setLive(true);
         refresh();
       };
       socket.onmessage = (event) => {
-        const frame = JSON.parse(event.data as string) as { quiet?: boolean; typing?: Typing };
+        const frame = JSON.parse(event.data as string) as { quiet?: boolean; typing?: TypingFrame };
         // Someone writing somewhere this person may read: shown where it is, and no reason to look at the board again.
         if (frame.typing !== undefined) { heardTyping(frame.typing); return; }
         if (frame.quiet) return;

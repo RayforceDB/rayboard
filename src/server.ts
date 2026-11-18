@@ -90,27 +90,38 @@ export function startServer(o: ServerOptions): Server {
   const secure = o.tls !== undefined || o.behindProxy;
   const cookieName = secure ? '__Host-rb' : 'rb';
   const sessions = new Map<string, { user: string; until: number; csrf: string }>();
-  const sockets = new Set<import('bun').ServerWebSocket<{ user: string; key: string }>>();
+  const sockets = new Set<import('bun').ServerWebSocket<{ user: string; key: string; tab: string }>>();
   // Who is writing where (T-476): in this process's memory only, never in the board. Each lasts TYPING_MS from
   // its last report; a report, a post, a stop, the writer's last socket closing or the lapse ends it.
   const TYPING_MS = o.typingMs ?? 8_000;
-  const typing = new Map<string, { chan: string; who: string; until: number }>();
+  const typing = new Map<string, { chan: string; who: string; until: number; sent: number; tab: string }>();
+  /** At most this many conversations one writer types in at once, and one frame a second for each (Mattew, T-476). */
+  const TYPING_PLACES = 10;
+  const TYPING_FRAME_MS = 1_000;
   const live = (ws: { data: { user: string; key: string } }): boolean =>
     o.unsafe !== undefined || ((sessions.get(ws.data.key)?.until ?? 0) > Date.now() && board.userById(ws.data.user) !== null);
-  /** Tells it to the sockets of those who may read that conversation, and to nobody else. */
+  /**
+   * Tells it to the sockets of those who may read that conversation, and to nobody else. The frame says how many
+   * milliseconds it lasts from now, not until when: a page whose clock is off counts them from its own now.
+   */
   const tellTyping = (chan: string, who: string, until: number): void => {
-    const frame = JSON.stringify({ typing: { chan, who, until } });
+    const frame = JSON.stringify({ typing: { chan, who, ms: until === 0 ? 0 : Math.max(0, until - Date.now()) } });
     for (const ws of sockets) {
       if (ws.data.user === who || !live(ws) || !board.mayRead(ws.data.user, chan)) continue;
       ws.send(frame);
     }
   };
-  board.onTyping(({ chan, who, composing }) => {
+  board.onTyping(({ chan, who, composing, holdMs, tab }) => {
     const key = `${chan}|${who}`;
     if (composing) {
-      const until = Date.now() + TYPING_MS;
-      typing.set(key, { chan, who, until });
-      tellTyping(chan, who, until);
+      const at = Date.now();
+      const had = typing.get(key);
+      if (had === undefined && [...typing.values()].filter((t) => t.who === who).length >= TYPING_PLACES) return;
+      const until = at + Math.min(holdMs ?? TYPING_MS, 60_000);
+      // A repeat within a second is kept but not told: readers' pages let it lapse no sooner than its last frame said.
+      const tell = had === undefined || at - had.sent >= TYPING_FRAME_MS;
+      typing.set(key, { chan, who, until, sent: tell ? at : had.sent, tab: tab ?? had?.tab ?? '' });
+      if (tell) tellTyping(chan, who, until);
     } else if (typing.delete(key)) {
       tellTyping(chan, who, 0);
     }
@@ -287,7 +298,7 @@ export function startServer(o: ServerOptions): Server {
   };
   // Read fresh at each listen, so a renewed certificate is taken up by the next listener.
   const tlsNow = () => (o.tls ? { tls: { cert: readFileSync(o.tls.cert, 'utf8'), key: readFileSync(o.tls.key, 'utf8') } } : {});
-  const listen = (port: number) => Bun.serve<{ user: string; key: string }>({
+  const listen = (port: number) => Bun.serve<{ user: string; key: string; tab: string }>({
     hostname: o.host,
     port,
     ...tlsNow(),
@@ -307,7 +318,8 @@ export function startServer(o: ServerOptions): Server {
         if (path === '/ws') {
           const session = sessionOf(req);
           if (session === null || (o.unsafe === undefined && !sameOrigin(req))) return refuse('unauthorized', 'sign in first');
-          return srv.upgrade(req, { data: { user: session.user.id, key: session.key } }) ? (undefined as unknown as Response) : refuse('invalid', 'not a websocket request');
+          const tab = url.searchParams.get('tab') ?? '';
+          return srv.upgrade(req, { data: { user: session.user.id, key: session.key, tab: /^[a-z0-9]{1,32}$/i.test(tab) ? tab : '' } }) ? (undefined as unknown as Response) : refuse('invalid', 'not a websocket request');
         }
         if (path === '/mcp') {
           if (req.method !== 'POST') return new Response(null, { status: 405, headers: { ...baseHeaders, Allow: 'POST' } });
@@ -500,12 +512,13 @@ export function startServer(o: ServerOptions): Server {
       open: (ws) => {
         sockets.add(ws);
         // Someone arriving sees who is writing already, where they may read.
-        for (const t of typing.values()) if (t.who !== ws.data.user && board.mayRead(ws.data.user, t.chan)) ws.send(JSON.stringify({ typing: t }));
+        for (const t of typing.values()) if (t.who !== ws.data.user && board.mayRead(ws.data.user, t.chan)) ws.send(JSON.stringify({ typing: { chan: t.chan, who: t.who, ms: Math.max(0, t.until - Date.now()) } }));
       },
       close: (ws) => {
         sockets.delete(ws);
-        // A person whose last page closed is writing nowhere any more.
+        // What this page was typing ends with it; a person whose last page closed is writing nowhere any more.
         if (![...sockets].some((other) => other.data.user === ws.data.user)) stopTypingOf(ws.data.user);
+        else if (ws.data.tab !== '') for (const [key, t] of typing) if (t.who === ws.data.user && t.tab === ws.data.tab) { typing.delete(key); tellTyping(t.chan, t.who, 0); }
       },
       // The feed only tells; nothing is asked of it.
       message() {},

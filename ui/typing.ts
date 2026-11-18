@@ -4,16 +4,21 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 
 export interface Typing { chan: string; who: string; until: number }
+/** What the feed says: how many milliseconds from now it lasts (0: stopped), counted by this page's own clock. */
+export interface TypingFrame { chan: string; who: string; ms: number }
+
+/** This page, among its person's pages: closing it ends what it was typing even while another page stays open. */
+export const TAB = Math.random().toString(36).slice(2, 12);
 
 const now = (): number => Date.now();
 const entries = new Map<string, Typing>();
 const subscribers = new Set<() => void>();
 const notify = (): void => { for (const f of subscribers) f(); };
 
-/** A frame from the live feed: someone writing (until in the future) or stopped (until 0). */
-export function heardTyping(t: Typing): void {
-  const key = `${t.chan}|${t.who}`;
-  if (t.until > now()) entries.set(key, t); else entries.delete(key);
+/** A frame from the live feed: someone writing for `ms` more, or stopped (0). */
+export function heardTyping(f: TypingFrame): void {
+  const key = `${f.chan}|${f.who}`;
+  if (f.ms > 0) entries.set(key, { chan: f.chan, who: f.who, until: now() + f.ms }); else entries.delete(key);
   notify();
 }
 
@@ -48,7 +53,7 @@ export function useReportTyping(to: string | null, text: string): void {
   useEffect(() => {
     if (to === null) return;
     const stop = (): void => {
-      if (at.current !== null) void api.call('typing', { to: at.current, composing: false }).catch(() => {});
+      if (at.current !== null) void api.call('typing', { to: at.current, composing: false, tab: TAB }).catch(() => {});
       at.current = null;
       last.current = 0;
     };
@@ -56,12 +61,12 @@ export function useReportTyping(to: string | null, text: string): void {
     if (at.current !== to || now() - last.current >= REPORT_MS) {
       at.current = to;
       last.current = now();
-      void api.call('typing', { to, composing: true }).catch(() => {});
+      void api.call('typing', { to, composing: true, tab: TAB }).catch(() => {});
     }
   }, [to, text]);
   // Another conversation, or leaving the page: what was being written here is not being written any more.
   useEffect(() => () => {
-    if (at.current !== null) void api.call('typing', { to: at.current, composing: false }).catch(() => {});
+    if (at.current !== null) void api.call('typing', { to: at.current, composing: false, tab: TAB }).catch(() => {});
     at.current = null;
   }, [to]);
 }

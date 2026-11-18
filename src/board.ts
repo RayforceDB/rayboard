@@ -70,7 +70,7 @@ export interface Board {
   /** Whether this person or agent may read the conversation `chan` (a channel id, dm:a:b or a task id). */
   mayRead(id: string, chan: string): boolean;
   /** Told when someone starts or stops composing in a conversation (T-476): nothing of it is written anywhere. */
-  onTyping(listener: (t: { chan: string; who: string; composing: boolean }) => void): void;
+  onTyping(listener: (t: { chan: string; who: string; composing: boolean; holdMs?: number; tab?: string }) => void): void;
   /** Saves this person's PNG/JPEG, then records its hash as part of the same board update. */
   setAvatar(user: string, bytes: Buffer, type: string): string;
   /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
@@ -215,8 +215,8 @@ export function openBoard(options: BoardOptions): Board {
     }
   };
   const listeners: ((entry: Entry) => void)[] = [];
-  const typingListeners: ((t: { chan: string; who: string; composing: boolean }) => void)[] = [];
-  const typingTold = (t: { chan: string; who: string; composing: boolean }): void => { for (const l of typingListeners) l(t); };
+  const typingListeners: ((t: { chan: string; who: string; composing: boolean; holdMs?: number; tab?: string }) => void)[] = [];
+  const typingTold = (t: { chan: string; who: string; composing: boolean; holdMs?: number; tab?: string }): void => { for (const l of typingListeners) l(t); };
   const seen = new Map<string, number>();
   const waiting = new Map<string, Set<() => void>>();
   /** A password hash is asynchronous: hold each invitation while it is being accepted so two requests cannot both use it. */
@@ -674,7 +674,12 @@ export function openBoard(options: BoardOptions): Board {
     typing: {
       description: 'Tell those who can read a conversation that you are writing to it right now, as a person typing is shown. Call it only when you are about to post there, never on a turn that posts nothing; repeat it every few seconds while you write, and it lapses by itself 8 seconds after the last call. Posting, or `composing: false`, ends it. Nothing of it is kept or notified.',
       who: 'any', mutates: false,
-      params: { to: str('#channel, @name, dm:… or a task id: where you are writing.', 80, true), composing: { type: 'boolean', description: 'true while writing (the default), false to stop.' } },
+      params: {
+        to: str('#channel, @name, dm:… or a task id: where you are writing.', 80, true),
+        composing: { type: 'boolean', description: 'true while writing (the default), false to stop.' },
+        hold: { type: 'integer', description: 'For an agent: how many seconds this report lasts, 1 to 60 (8 by default), for writing that takes a while; posting or `composing: false` still ends it at once.', min: 1, max: 60 },
+        tab: str('For a page: which of its person\'s pages reports it, so that closing that page ends it.', 32),
+      },
       run(actor, p) {
         // Read-only in the log, yet it speaks into a conversation: whoever may not post there may not type there.
         if (actor.role === 'viewer') bad('forbidden', 'viewers have read-only access');
@@ -685,7 +690,10 @@ export function openBoard(options: BoardOptions): Board {
           if (ids.length !== 2 || !ids.includes(actor.id)) bad('forbidden', 'you can only write to your own direct messages');
         }
         const where = place(actor, to);
-        typingTold({ chan: where.chan, who: actor.id, composing: p.composing !== false });
+        // A person's page repeats its report while they type; an agent says once how long it will be writing.
+        const holdMs = actor.kind === 'agent' && p.hold !== undefined ? (p.hold as number) * 1000 : undefined;
+        const tab = typeof p.tab === 'string' && /^[a-z0-9]{1,32}$/i.test(p.tab) ? p.tab : undefined;
+        typingTold({ chan: where.chan, who: actor.id, composing: p.composing !== false, ...(holdMs ? { holdMs } : {}), ...(tab ? { tab } : {}) });
         return { ok: true, chan: where.chan };
       },
     },
