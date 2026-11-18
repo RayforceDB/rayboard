@@ -1018,11 +1018,21 @@ export function openBoard(options: BoardOptions): Board {
       run(actor) {
         const at = now().toISOString();
         const month = new Map(store.ask(`(select {from: costs where: (>= ts (first (at rb_q 'q0))) by: {agent: agent} usd: (sum usd)})`, { ts: monthStart(at) }).map((r) => [r.agent, Number(r.usd)]));
+        // Where the last messages from others sit in each conversation, so a page counts what it has not read
+        // (its read marks are its own): an unread number, not a total (Anton, T-461). At most 99 each.
+        const fromOthers = new Map<string, number[]>();
+        for (const m of [...store.ask(`(select {seq: seq chan: chan author: author from: messages where: (== kind 'channel)})`), ...store.ask(`(select {seq: seq chan: chan author: author from: messages where: (== kind 'dm)})`)]) {
+          if (m.author === actor.id || m.author === 'github') continue;
+          const list = fromOthers.get(m.chan as string) ?? [];
+          list.push(Number(m.seq));
+          fromOthers.set(m.chan as string, list);
+        }
+        const recentFrom = (chan: string): number[] => (fromOthers.get(chan) ?? []).sort((a, b) => a - b).slice(-99);
         return {
           now: at,
           agents: store.all('agents').map((a) => ({ ...agentView(a), avatar: a.avatar ? `/api/avatars/${a.id}/${a.avatar}` : '', spent: month.get(a.id as string) ?? 0 })),
           people: store.all('users').map(userView),
-          channels: actions.list_channels!.run(actor, {}),
+          channels: (actions.list_channels!.run(actor, {}) as Row[]).map((c) => ({ ...c, recent: recentFrom(c.id as string) })),
           tasks: (() => {
             const tasks = store.ask(`(select {from: tasks desc: seq take: 1000})`).filter((t) => canSee(actor, t));
             // What last happened to each task, whoever did it: a change, a comment, evidence or a review.
@@ -1034,7 +1044,7 @@ export function openBoard(options: BoardOptions): Board {
             });
           })(),
           reviews: actions.list_reviews!.run(actor, {}),
-          dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)),
+          dms: store.ask(`(select {from: messages where: (== kind 'dm) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((d) => (d.chan as string).split(':').includes(actor.id) || isAdmin(actor)).map((d) => ({ ...d, recent: recentFrom(d.chan as string) })),
           threads: store.ask(`(select {from: messages where: (== kind 'task) by: {chan: chan} n: (count id) last: (max seq) last_author: (last author)})`).filter((r) => {
             const t = store.get('tasks', r.chan as string);
             return t !== null && canSee(actor, t);

@@ -46,6 +46,7 @@ export interface Ctx {
   act: (work: () => Promise<unknown>) => Promise<boolean>;
   open: (view: string, item?: string) => void;
   unread: (row: Row) => boolean;
+  unreadOf: (row: Row) => number;
   markRead: (channel: string, last: number) => void;
 }
 export const BoardContext = createContext<Ctx | null>(null);

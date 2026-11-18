@@ -14,6 +14,11 @@ function readAll(): Reads {
 export function changed(row: Row, read: number, self: string): boolean {
   return Number(row.last ?? row.seq ?? 0) > read && row.last_author !== self && row.last_author !== 'github';
 }
+/** How many messages from others lie beyond this read mark in a conversation (the dashboard lists where the last 99 are). */
+export function unreadIn(row: Row, read: number): number {
+  const recent = Array.isArray(row.recent) ? (row.recent as number[]) : [];
+  return recent.filter((seq) => seq > read).length;
+}
 export function unreadCount(rows: Row[], reads: Reads, self: string, prefix = ''): number {
   return rows.filter((r) => ((r.id ?? r.chan) as string).startsWith(prefix) && changed(r, reads[(r.id ?? r.chan) as string] ?? 0, self)).length;
 }
@@ -27,5 +32,5 @@ export function useUnread(self: string) {
       return next;
     });
   }, []);
-  return { reads, unread: (row: Row) => changed(row, reads[(row.id ?? row.chan) as string] ?? 0, self), markRead };
+  return { reads, unread: (row: Row) => changed(row, reads[(row.id ?? row.chan) as string] ?? 0, self), unreadOf: (row: Row) => unreadIn(row, reads[(row.id ?? row.chan) as string] ?? 0), markRead };
 }
