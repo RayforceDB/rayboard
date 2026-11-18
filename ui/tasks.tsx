@@ -387,7 +387,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const sentHere = useRef(new Sent()).current;
   // Reads can come back out of order; only the last one started is shown.
   const reads = useRef(0);
-  useEffect(() => { const n = ++reads.current; void api.call('get_task', { task: id }).then((got) => { if (n !== reads.current) return; const next = { ...got, thread: sentHere.merge(id, got.thread) }; setD(next); markRead(id,Math.max(next.task.seq??0,...next.thread.map((m:Row)=>Number(m.seq??0)))); }, (e: Error) => setMissing(e.message)); }, [id, tick, markRead]);
+  useEffect(() => { const n = ++reads.current; void api.call('get_task', { task: id }).then((got) => { if (n !== reads.current) return; const next = { ...got, thread: sentHere.merge(id, got.thread) }; setD(next); // Read up to what the count measures: the dashboard's last change folds in evidence, reviews and events,
+      // not only the task and its thread, so marking less left a task counted forever (Anton: never falls to 1).
+      const counted = Number(board.tasks.find((t) => t.id === id)?.last ?? 0);
+      markRead(id, Math.max(counted, Number(next.task.seq ?? 0), ...next.evidence.map((e: Row) => Number(e.seq ?? 0)), ...next.reviews.map((r: Row) => Number(r.seq ?? 0)), ...next.thread.map((m: Row) => Number(m.seq ?? 0)))); }, (e: Error) => setMissing(e.message)); }, [id, tick, markRead, board.tasks]);
   useEffect(() => {
     if (tab === 'activity') void api.call<Row[]>('activity', { subject: id, limit: 100 }).then(setEvents, () => setEvents([]));
   }, [id, tick, tab]);
