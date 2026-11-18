@@ -32,11 +32,8 @@ export function Tasks({ item }: { item: string }) {
   const [dropLane, setDropLane] = useState('');
   const [dropError, setDropError] = useState('');
   const [project, setProject] = useProject();
-  const [group, setGroup] = useState<'status' | 'project'>(() => { try { return localStorage.getItem('rb.group') === 'project' ? 'project' : 'status'; } catch { return 'status'; } });
-  const groupBy = (g: 'status' | 'project'): void => {
-    setGroup(g);
-    try { localStorage.setItem('rb.group', g); } catch { /* only a convenience */ }
-  };
+  // The board is laid out by status; the list by project. A single project is chosen with the filter or the sidebar.
+  const group: 'status' | 'project' = layout === 'board' ? 'status' : 'project';
   const projects = projectsOf(board.tasks);
   const unfiled = board.tasks.filter((t) => !t.project).length;
   // A project chosen elsewhere and since emptied still filters, so it stays listed until another is chosen.
@@ -117,10 +114,6 @@ export function Tasks({ item }: { item: string }) {
           <div className="seg" role="group" aria-label="Layout">
             <button className={layout === 'board' ? 'on' : ''} onClick={() => pick('board')}><Icon name="board" />Board</button>
             <button className={layout === 'list' ? 'on' : ''} onClick={() => pick('list')}><Icon name="list" />List</button>
-          </div>
-          <div className="seg" role="group" aria-label="Group by">
-            <button className={group === 'status' ? 'on' : ''} onClick={() => groupBy('status')} title="Group by status">By status</button>
-            <button className={group === 'project' ? 'on' : ''} onClick={() => groupBy('project')} title="Group by project">By project</button>
           </div>
           <select className="project-filter" value={project} onChange={(e) => setProject(e.target.value)} aria-label="Project">
             <option value="">All projects</option>
