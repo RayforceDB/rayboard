@@ -200,3 +200,19 @@ test('the App never writes a label outside the board\'s own', async () => {
   const app = new GithubApp(tempDir(), fakeGithub().fetch);
   await expect(app.setLabel('RayforceDB/rayforce', 1, 'priority:high', new Set(['rb:review']))).rejects.toThrow('not a label the board writes');
 });
+
+test('a pull request is labelled only once the App may write pull requests; until then it is left as it is (T-446)', async () => {
+  const pull = { ...issue(4, 'a pull request', { pull_request: { merged_at: null } }) };
+  for (const [grant, written] of [['read', false], ['write', true]] as const) {
+    const fake = fakeGithub({ open: [[pull]], permissions: { metadata: 'read', issues: 'write', pull_requests: grant, checks: 'read' } });
+    const { board, server, admin } = await setup(fake);
+    const anton = board.firstUser()!;
+    const started = (await (await fetch(`${server.url}/api/github/connect`, { method: 'POST', headers: admin, body: '{}' })).json()) as { url: string };
+    await fetch(`${server.url}/api/github/manifest?code=good-code&state=${new URL(started.url).searchParams.get('state')}`, { redirect: 'manual' });
+    await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
+    const t = ((await board.call(anton, 'list_tasks', { status: 'all' })) as { id: string }[])[0]!;
+    await board.call(anton, 'claim_task', { task: t.id });
+    for (let i = 0; i < 30 && !(fake.labels.get('RayforceDB/rayforce#4') ?? []).includes('rb:in-progress'); i++) await Bun.sleep(20);
+    expect((fake.labels.get('RayforceDB/rayforce#4') ?? []).includes('rb:in-progress')).toBe(written);
+  }
+});

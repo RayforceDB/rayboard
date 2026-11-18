@@ -1600,7 +1600,13 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     githubDelivery,
     githubFollowed: () => followed(),
     githubLabelTargets() {
+      // GitHub lets an App label a pull request only with pull_requests: write; with issues: write alone it
+      // answers 403. Pull requests are labelled once the grant allows it, issues always (T-446, Mica's review).
+      let granted: Record<string, string> = {};
+      try { granted = (JSON.parse(store.get('settings', 'github.app')?.value as string ?? '{}') as { permissions?: Record<string, string> }).permissions ?? {}; } catch { granted = {}; }
+      const prs = granted.pull_requests === 'write';
       return store.all('gh_items').flatMap((g) => {
+        if (g.kind === 'pr' && !prs) return [];
         const t = store.get('tasks', g.task as string);
         if (t === null) return [];
         // A cancelled task says nothing on GitHub: its label, if any, is taken off.
