@@ -490,3 +490,5 @@ button.small { padding: 3px 10px; font-size: 13px; }
 }
 /* The board's lanes scroll sideways; a slightly stronger thumb there tells there is more to the right. */
 .kanban::-webkit-scrollbar-thumb { background-color: #cfc5bb; }
+.gh-unfollowed { border: 1px dashed var(--line-strong); border-radius: var(--r); padding: 10px 12px; margin: 8px 0; }
+.gh-unfollowed li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }

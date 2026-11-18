@@ -64,6 +64,15 @@ function Github() {
   if (status === null) return null;
   const connected = status.connected as Row | null;
   const problems = ((status.app as Row | null)?.problems as string[] | undefined) ?? [];
+  const followed = (status.repos as Row[]).map((r) => r.name as string);
+  /** Where the App is installed but the board does not look: one click follows them, or the list says to narrow the install. */
+  const unfollowed = (((status.app as Row | null)?.repos as string[] | undefined) ?? []).filter((name) => !followed.some((f) => f.toLowerCase() === name.toLowerCase()));
+  const follow = (names: string[]): Promise<boolean> => act(async () => {
+    await api.call('set_github_repos', { repos: [...followed, ...names].join(' ') });
+    setRepos([...followed, ...names].join(' '));
+    await api.githubSync();
+    load();
+  });
   // GitHub creates the App from a manifest posted by the browser itself; the board then keeps its key and secret.
   const connect = (): Promise<boolean> => act(async () => {
     const started = await api.githubConnect(owner);
@@ -91,6 +100,15 @@ function Github() {
         <>
           <p>Connected as <a href={connected.html_url as string} target="_blank" rel="noreferrer noopener">{connected.slug as string}</a> in {connected.owner as string}. <a href={`${connected.html_url as string}/installations/new`} target="_blank" rel="noreferrer noopener">Choose repositories on GitHub</a></p>
           {problems.length > 0 ? <ul className="error">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : status.app ? <p className="muted">Permissions and repositories checked {new Date((status.app as Row).checked as string).toLocaleString()}.</p> : <p className="muted">Not checked yet.</p>}
+          {unfollowed.length > 0 && (
+            <div className="gh-unfollowed">
+              <p className="muted">The App can read these, but the board does not follow them yet:</p>
+              <ul className="list plain">
+                {unfollowed.map((name) => <li key={name}><code>{name}</code><span className="grow" /><button className="small" onClick={() => void follow([name])}>Follow</button></li>)}
+              </ul>
+              {unfollowed.length > 1 && <div className="row end"><button className="primary small" onClick={() => void follow(unfollowed)}>Follow all {unfollowed.length}</button></div>}
+            </div>
+          )}
           <div className="row end"><button onClick={() => void act(async () => { await api.githubSync(); load(); })}>Check now</button></div>
         </>
       )}
