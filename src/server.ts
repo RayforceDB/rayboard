@@ -243,6 +243,19 @@ export function startServer(o: ServerOptions): Server {
     return session instanceof Response ? session : session.user;
   }
 
+  // JSON answers go out gzipped when the browser takes it: the dashboard is a few hundred kilobytes, asked for
+  // again after every change, and neither Bun nor a proxy in front compresses it by default.
+  const gzipped = async (req: Request, res: Response | undefined): Promise<Response | undefined> => {
+    if (res === undefined || res.headers.has('Content-Encoding') || !(res.headers.get('Content-Type') ?? '').startsWith('application/json')) return res;
+    if (!/\bgzip\b/.test(req.headers.get('accept-encoding') ?? '')) return res;
+    const raw = new Uint8Array(await res.arrayBuffer());
+    const headers = new Headers(res.headers);
+    if (raw.length < 1024) return new Response(raw, { status: res.status, statusText: res.statusText, headers });
+    headers.set('Content-Encoding', 'gzip');
+    headers.append('Vary', 'Accept-Encoding');
+    headers.delete('Content-Length');
+    return new Response(Bun.gzipSync(raw, { level: 5 }), { status: res.status, statusText: res.statusText, headers });
+  };
   // Read fresh at each listen, so a renewed certificate is taken up by the next listener.
   const tlsNow = () => (o.tls ? { tls: { cert: readFileSync(o.tls.cert, 'utf8'), key: readFileSync(o.tls.key, 'utf8') } } : {});
   const listen = (port: number) => Bun.serve<{ user: string; key: string }>({
@@ -255,6 +268,7 @@ export function startServer(o: ServerOptions): Server {
     // An inbox may wait 50 seconds for something to arrive.
     idleTimeout: 90,
     async fetch(req, srv) {
+      return gzipped(req, await (async () => {
       const url = new URL(req.url);
       const path = url.pathname;
       const forwarded = o.behindProxy ? req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() : undefined;
@@ -451,6 +465,7 @@ export function startServer(o: ServerOptions): Server {
       } catch (err) {
         return failed(err);
       }
+      })());
     },
     websocket: {
       open: (ws) => void sockets.add(ws),

@@ -32,7 +32,11 @@ export function Chat({ item }: { item: string }) {
   const send = async (body: string): Promise<boolean> => {
     if (body.trim() === '') return false;
     const to = current.startsWith('dm:') ? `@${dmLabel(current)}` : current;
-    const ok = await act(() => api.call('post_message', { to, body }));
+    // Shown at once from the server's answer, not after the next look at the whole board.
+    const ok = await act(async () => {
+      const sent = await api.call<Row>('post_message', { to, body });
+      setMessages((ms) => (ms.some((m) => m.id === sent.id) ? ms : [...ms, sent]));
+    });
     if (ok) setText('');
     return ok;
   };

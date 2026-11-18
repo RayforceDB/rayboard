@@ -377,7 +377,11 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const run = (action: string, params: Row = {}) => () => void act(() => api.call(action, { task: t.id, ...params }));
   const say = async (body: string): Promise<boolean> => {
     if (body.trim() === '') return false;
-    const ok = await act(() => api.call('post_message', { to: t.id, body }));
+    // Shown at once from the server's answer, not after the next look at the whole board.
+    const ok = await act(async () => {
+      const sent = await api.call<Row>('post_message', { to: t.id, body });
+      setD((cur) => (cur === null || cur.task.id !== t.id || cur.thread.some((m) => m.id === sent.id) ? cur : { ...cur, thread: [...cur.thread, sent] }));
+    });
     if (ok) setComment('');
     return ok;
   };
