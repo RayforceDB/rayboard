@@ -39,3 +39,15 @@ test('a deactivated person loses an open session at once, and their name is no l
   expect(session.user).toBeNull();
   expect(await board.login('guest', 'correct horse battery')).toBeNull();
 });
+
+test('the activity line for a new person says the role they joined with', async () => {
+  const board = openBoard({ ray: await sharedRay(), base: join(tempDir(), 'board') });
+  await board.createUser('anton', 'correct horse battery');
+  await board.createUser('serhii', 'correct horse battery', 'member');
+  await board.createUser('vic', 'correct horse battery', 'viewer');
+  const anton = board.userById(board.store.all('users').find((u) => u.name === 'anton')!.id as string)!;
+  const lines = ((await board.call(anton, 'activity', { limit: 10 })) as { summary: string }[]).map((e) => e.summary);
+  expect(lines).toContain('anton joined as an administrator');
+  expect(lines).toContain('serhii joined as a member');
+  expect(lines).toContain('vic joined as a viewer');
+});

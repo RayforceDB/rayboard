@@ -1562,7 +1562,7 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       if (directory().byName.has(handle)) bad('conflict', `the name ${handle} is taken`);
       if (!ROLES.includes(role)) bad('invalid', 'a person is an admin, member or viewer');
       const user: Row = { id: ident('u'), name: handle, pass, status: 'active', role, created: now().toISOString() };
-      commit('user.created', user.id as string, user.id as string, `${handle} joined as a person overseeing the board`, { users: [user] });
+      commit('user.created', user.id as string, user.id as string, `${handle} joined as ${role === 'admin' ? 'an administrator' : role === 'viewer' ? 'a viewer' : 'a member'}`, { users: [user] });
       return actorOfUser(user);
     },
     async acceptInvite(key, name, password) {
