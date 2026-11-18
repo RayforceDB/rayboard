@@ -28,6 +28,8 @@ export function Tasks({ item }: { item: string }) {
   const [creating, setCreating] = useState<boolean | string>(false);
   const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
+  /** Only the tasks changed by someone else since this person last opened them (Anton: which of many have news?). */
+  const [onlyUpdated, setOnlyUpdated] = useState(false);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState('');
   const [dropLane, setDropLane] = useState('');
@@ -50,7 +52,8 @@ export function Tasks({ item }: { item: string }) {
   // Only work still going on is marked: it is what the sidebar counts, and a change to finished work asks nothing.
   const unreadRow = (t: Row) => t.status !== 'done' && t.status !== 'cancelled' && unread(t);
   const q = query.trim().toLowerCase();
-  const shown = board.tasks.filter((t) => inProject(t, project) && (q === '' || `${t.id} ${t.title} ${name(t.assignee)} ${t.project ?? ''}`.toLowerCase().includes(q)));
+  const updated = board.tasks.filter((t) => unreadRow(t) && inProject(t, project)).sort((x, y) => Number(y.last ?? 0) - Number(x.last ?? 0));
+  const shown = board.tasks.filter((t) => inProject(t, project) && (!onlyUpdated || unreadRow(t)) && (q === '' || `${t.id} ${t.title} ${name(t.assignee)} ${t.project ?? ''}`.toLowerCase().includes(q)));
   const lanesOf = (among: Row[]) => [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
     const tasks = among.filter((t) => (lane.has as readonly string[]).includes(t.status));
     const ordered = lane.key === 'done' || lane.key === 'cancelled' ? tasks.slice(0, 30) : tasks.sort((x, y) => y.priority - x.priority || y.seq - x.seq);
@@ -121,6 +124,18 @@ export function Tasks({ item }: { item: string }) {
           {me.role !== 'viewer' && <button className="primary" onClick={() => setCreating(project !== NONE && project !== '' ? project : true)}><Icon name="plus" />New task</button>}
         </header>
         <AgentStrip />
+        {(updated.length > 0 || onlyUpdated) && (
+          <section className="updated-strip" aria-label="Updated since you last opened them">
+            <span className="what"><i className="new" aria-hidden="true" />{updated.length === 0 ? 'Nothing updated' : `${updated.length} updated since you last opened ${updated.length === 1 ? 'it' : 'them'}`}</span>
+            {updated.slice(0, 6).map((t) => (
+              <button key={t.id as string} className="updated-link" onClick={() => open('tasks', t.id as string)} title={`${t.id}: ${t.title}`}>
+                <TaskNumber t={t} /><span className="title">{t.title as string}</span>
+              </button>
+            ))}
+            {updated.length > 6 && !onlyUpdated && <span className="muted">and {updated.length - 6} more</span>}
+            <label className="check"><input type="checkbox" checked={onlyUpdated} onChange={(e) => setOnlyUpdated(e.target.checked)} /> Only updated</label>
+          </section>
+        )}
         {cancelled > 0 && <label className="check cancelled-toggle"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show {cancelled} cancelled</label>}
         {board.tasks.length === 0 && <Empty>No tasks yet. Create one, or let an agent do it with <code>create_task</code>.</Empty>}
         {layout === 'board' && board.tasks.length > 0 && (

@@ -571,3 +571,14 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 
 /* A conversation shows only whether something is waiting (Anton read a total of 1 as one unread): a dot, no totals. */
 .conversations .new { flex: none; margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+/* What changed since one last looked, findable among many tasks (Anton): a strip of links and a filter, and the
+   card's chip in the accent rather than grey. */
+.updated-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--accent-soft); background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel)); border-radius: var(--r); min-width: 0; }
+.updated-strip .what { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; color: var(--accent-text); margin-right: 4px; }
+.updated-strip .new { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.updated-strip .updated-link { display: inline-flex; align-items: center; gap: 6px; max-width: 280px; min-width: 0; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line-strong); background: var(--panel); font-size: 13px; }
+.updated-strip .updated-link:hover { border-color: var(--accent); }
+.updated-strip .updated-link .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.updated-strip .check { margin-left: auto; }
+.unread-chip { color: var(--accent-text); background: var(--accent-soft); border-color: transparent; }
