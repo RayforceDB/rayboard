@@ -676,7 +676,10 @@ export function openBoard(options: BoardOptions): Board {
         if (actor.kind !== 'user' && (t.status === 'done' || t.status === 'cancelled')) bad('conflict', `${t.id} is ${t.status}; a person reopens it before it changes`);
         const change: Record<string, string | number> = {};
         for (const key of ['title', 'body', 'outcome', 'next', 'priority'] as const) if (p[key] !== undefined) change[key] = p[key] as string | number;
-        if (p.project !== undefined) change.project = p.project === 'none' ? '' : projectName(p.project as string);
+        if (p.project !== undefined) {
+          if (p.project === 'none' && store.all('gh_items').some((g) => g.task === t.id)) bad('invalid', `${t.id} came from GitHub and always belongs to a project; move it to another instead`);
+          change.project = p.project === 'none' ? '' : projectName(p.project as string);
+        }
         if (p.participants !== undefined) change.participants = p.participants === 'none' ? '' : several(p.participants as string).join(' ');
         if (p.private !== undefined) change.private = p.private === true ? 1 : 0;
         const changed = Object.keys(change).filter((key) => change[key] !== t[key]);
@@ -1462,6 +1465,19 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     },
     close: () => store.close(),
   };
+  // What came from GitHub always belongs to a project: one that came in without (before projects
+  // existed) is put under its repository's, once, when the board opens. A person may move it, not clear it.
+  {
+    const at = now().toISOString();
+    const filled = store.all('gh_items').flatMap((g) => {
+      const t = store.get('tasks', g.task as string);
+      if (t === null || (t.project ?? '') !== '') return [];
+      const short = String(g.repo_name).split('/').pop() ?? '';
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(short)) return [];
+      return [{ ...t, project: short.toLowerCase(), updated: at, seq: seq + 1, rev: (t.rev as number) + 1 }];
+    });
+    if (filled.length > 0) commit('github.projects', 'github', 'github.projects', `${filled.length} task${filled.length === 1 ? '' : 's'} from GitHub put under their repository's project`, { tasks: filled });
+  }
   return api;
 }
 const DUMMY_HASH = await Bun.password.hash(randomBytes(16).toString('hex'), { algorithm: 'argon2id' });

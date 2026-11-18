@@ -60,4 +60,16 @@ test('an issue from GitHub comes in under its repository\'s project, and GitHub 
   t = (await tasks()).find((x) => x.id === id)!;
   expect(t.title).toBe('rayforce-q#3 Slow join on keyed tables');
   expect(t.project).toBe('rayforce');
+  await fails(board.call(admin, 'update_task', { task: id, rev: t.rev, project: 'none' }), 'invalid');
+});
+
+test('reopening the board never moves a GitHub task a person has filed elsewhere', async () => {
+  await board.call(admin, 'set_github_repos', { repos: 'RayforceDB/rayforce-rs' });
+  const repository = { id: 303, full_name: 'RayforceDB/rayforce-rs', private: false };
+  const id = board.githubDelivery('d1', 'issues', { action: 'opened', issue: { node_id: 'I_9', number: 9, html_url: 'https://github.com/RayforceDB/rayforce-rs/issues/9', title: 'Old', state: 'open', user: { login: 'r' }, updated_at: '2026-11-18T09:00:00Z' }, repository }).task!;
+  const before = (await tasks()).find((x) => x.id === id)!;
+  expect(before.project).toBe('rayforce-rs');
+  await board.call(admin, 'update_task', { task: id, rev: before.rev, project: 'scratch' });
+  board.close(); board = await open();
+  expect((await tasks()).find((x) => x.id === id)!.project).toBe('scratch');
 });
