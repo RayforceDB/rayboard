@@ -1,13 +1,23 @@
 import type { Row } from './api';
 import { useCtx } from './kit';
 
-/** Warm and calm hues that sit with the board's orange; a project keeps its own however the list changes. */
-const HUES = [18, 32, 145, 168, 200, 222, 262, 292, 330, 352];
+/** Twelve hues spaced around the wheel, in an order that keeps neighbours apart: the first projects differ most. */
+const HUES = [18, 210, 140, 285, 48, 175, 330, 95, 245, 0, 160, 65];
 
 function hash(text: string): number {
   let h = 2166136261;
   for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return h >>> 0;
+}
+
+/**
+ * A project's hue: the board's projects take the hues in turn, by name, so no two of the first twelve share one;
+ * a name the board does not know falls back to its hash.
+ */
+export function hueOf(name: string, names: string[]): number {
+  const sorted = [...new Set(names)].sort();
+  const at = sorted.indexOf(name);
+  return HUES[(at >= 0 ? at : hash(name)) % HUES.length]!;
 }
 
 /** What a project is called in two letters at most: the first of each part, so rayforce-q is RQ. */
@@ -19,7 +29,8 @@ export function initials(name: string): string {
 
 /** A project's mark: its initials on a tile of its own colour. */
 export function ProjectMark({ name, size = 18 }: { name: string; size?: number }) {
-  const hue = HUES[hash(name) % HUES.length]!;
+  const { board } = useCtx();
+  const hue = hueOf(name, board.tasks.map((t) => (t.project as string | undefined) ?? '').filter((p) => p !== ''));
   const text = initials(name);
   return (
     <span className="project-mark" aria-hidden="true" style={{ width: size, height: size, fontSize: Math.round(size * (text.length > 1 ? 0.46 : 0.58)), background: `hsl(${hue} 62% 92%)`, color: `hsl(${hue} 55% 34%)`, borderColor: `hsl(${hue} 45% 80%)` }}>
