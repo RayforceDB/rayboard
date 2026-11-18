@@ -16,3 +16,13 @@ export function onAskOnlyUpdated(f: () => void): () => void {
   listeners.add(f);
   return () => { listeners.delete(f); };
 }
+
+/**
+ * The updated tasks as the Board shows them: those in the chosen project, and how many more the sidebar count
+ * includes from other projects. The count is never scoped, so the board must say where the rest are.
+ */
+export function updatedScope<T>(tasks: T[], isUpdated: (t: T) => boolean, inScope: (t: T) => boolean): { here: T[]; elsewhere: number; total: number } {
+  const all = tasks.filter(isUpdated);
+  const here = all.filter(inScope);
+  return { here, elsewhere: all.length - here.length, total: all.length };
+}

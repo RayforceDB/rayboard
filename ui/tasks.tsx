@@ -9,7 +9,7 @@ import { NONE, inProject, projectsOf, useProject } from './projects';
 import { GithubMark, ProjectMark, TaskNumber, useShownTitle } from './marks';
 import { imageHandlers } from './images';
 import { Sent } from './sent';
-import { onAskOnlyUpdated, takeOnlyUpdated } from './updated';
+import { onAskOnlyUpdated, takeOnlyUpdated, updatedScope } from './updated';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
 const LANES = [
@@ -30,13 +30,18 @@ export function Tasks({ item }: { item: string }) {
   const [layout, setLayout] = useState<'list' | 'board'>(() => (localStorage.getItem('rb.layout') === 'list' ? 'list' : 'board'));
   const [showAll, setShowAll] = useState(false);
   /** Only the tasks changed by someone else since this person last opened them (Anton: which of many have news?). */
-  const [onlyUpdated, setOnlyUpdated] = useState(takeOnlyUpdated);
-  useEffect(() => onAskOnlyUpdated(() => { takeOnlyUpdated(); setOnlyUpdated(true); }), []);
+  const [onlyUpdated, setOnlyUpdated] = useState(false);
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState('');
   const [dropLane, setDropLane] = useState('');
   const [dropError, setDropError] = useState('');
   const [project, setProject] = useProject();
+  // The Board count covers every project, so following it shows every project's updated tasks (Mica, T-465).
+  useEffect(() => {
+    const follow = (): void => { setOnlyUpdated(true); setProject(''); };
+    if (takeOnlyUpdated()) follow();
+    return onAskOnlyUpdated(() => { takeOnlyUpdated(); follow(); });
+  }, [setProject]);
   // The board is laid out by status; the list by project. A single project is chosen with the filter or the sidebar.
   const group: 'status' | 'project' = layout === 'board' ? 'status' : 'project';
   const projects = projectsOf(board.tasks);
@@ -54,10 +59,11 @@ export function Tasks({ item }: { item: string }) {
   // Only work still going on is marked: it is what the sidebar counts, and a change to finished work asks nothing.
   const unreadRow = (t: Row) => t.status !== 'done' && t.status !== 'cancelled' && unread(t);
   const q = query.trim().toLowerCase();
-  const updatedAll = board.tasks.filter((t) => unreadRow(t)).sort((x, y) => Number(y.last ?? 0) - Number(x.last ?? 0));
-  const updated = updatedAll.filter((t) => inProject(t, project));
   // The sidebar counts every project; a chosen project must not make the rest look like nothing (Anton: "nothing updated while the count says 3").
-  const elsewhere = updatedAll.length - updated.length;
+  const scope = updatedScope([...board.tasks].sort((x, y) => Number(y.last ?? 0) - Number(x.last ?? 0)), unreadRow, (t) => inProject(t, project));
+  const updated = scope.here;
+  const elsewhere = scope.elsewhere;
+  const updatedAll = { length: scope.total };
   const shown = board.tasks.filter((t) => inProject(t, project) && (!onlyUpdated || unreadRow(t)) && (q === '' || `${t.id} ${t.title} ${name(t.assignee)} ${t.project ?? ''}`.toLowerCase().includes(q)));
   const lanesOf = (among: Row[]) => [...LANES, ...(showAll ? [CANCELLED] : [])].map((lane) => {
     const tasks = among.filter((t) => (lane.has as readonly string[]).includes(t.status));
