@@ -61,7 +61,7 @@ export function Chat({ item }: { item: string }) {
       <button key={id} className={`conv who2 ${dmOf(id) === current ? 'on' : ''} ${unread(dm ?? {}) ? 'unread' : ''}`} onClick={() => open('chat', dmOf(id))} title={title}>
         <span className="face"><Avatar id={id} size={28} />{tone !== undefined && <i className={`presence ${tone}`} />}</span>
         <span className="grow lines"><span className="name">{name(id)}</span><span className="sub">{sub}</span></span>
-        {dm && Number(dm.n) > 0 && <span className="n">{dm.n}</span>}
+        {dm && unread(dm) && <i className="new" title="Unread messages" aria-label="unread" />}
       </button>
     );
   };
@@ -75,7 +75,7 @@ export function Chat({ item }: { item: string }) {
           <button key={c.id} className={`conv ${c.id === current ? 'on' : ''} ${unread(c) ? 'unread' : ''}`} onClick={() => open('chat', c.id)}>
             <span className="glyph" aria-hidden="true">#</span>
             <span className="grow">{c.name as string}</span>
-            {Number(c.messages) > 0 && <span className="n" title={`${c.messages} messages`}>{c.messages}</span>}
+            {unread(c) && <i className="new" title="Unread messages" aria-label="unread" />}
           </button>
         ))}
         {people.length > 0 && <h3 className="label">People</h3>}
@@ -94,7 +94,7 @@ export function Chat({ item }: { item: string }) {
             <button key={d.chan} className={`conv pair ${d.chan === current ? 'on' : ''} ${unread(d) ? 'unread' : ''}`} onClick={() => open('chat', d.chan)} title={`A conversation between ${pair.map(name).join(' and ')}, shown to you as an overseer`}>
               <span className="duo" aria-hidden="true">{pair.slice(0, 2).map((id) => <Avatar key={id} id={id} size={20} />)}</span>
               <span className="grow">{pair.map(name).join(' · ')}</span>
-              <span className="n">{d.n}</span>
+              {unread(d) && <i className="new" title="Unread messages" aria-label="unread" />}
             </button>
           );
         })}

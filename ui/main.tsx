@@ -119,7 +119,8 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
     if (board === null) return null;
     const names = new Map([...board.agents, ...board.people].map((a) => [a.id as string, a.name as string]));
     return { board, tick, me: current, unread: unread.unread, markRead: unread.markRead, name: (id) => names.get(id) ?? id, act, open };
-  }, [board, tick, current, act, open]);
+  // unread.reads too: without it, what was just read kept showing as unread until the next change on the board.
+  }, [board, tick, current, act, open, unread.reads]);
   const shownCtx = useMemo((): Ctx | null => ctx === null ? null : readOnly ? { ...ctx, act: async () => { setError('Viewers have read-only access'); return false; } } : ctx, [ctx, readOnly]);
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 

@@ -568,3 +568,6 @@ a.button { display: inline-flex; align-items: center; border: 1px solid var(--li
 .list.plain li.proof > .row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .list.plain li.proof > .row .grow { flex: 1 1 0; }
 .list.plain li.proof .prose, .list.plain li.proof > div:last-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* A conversation shows only whether something is waiting (Anton read a total of 1 as one unread): a dot, no totals. */
+.conversations .new { flex: none; margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
