@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from './api';
 import { Avatar, Field, Form, Modal, useCtx } from './kit';
+import { disableNotify, enableNotify, notifySupported, notifyWanted } from './tabsignal';
 
 /** Identity settings never change the login used for mentions or access decisions. */
 export function Profile({ onClose, onPassword }: { onClose: () => void; onPassword: () => void }) {
@@ -9,6 +10,8 @@ export function Profile({ onClose, onPassword }: { onClose: () => void; onPasswo
   const [about, setAbout] = useState(me.about ?? '');
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [notify, setNotify] = useState(notifyWanted);
+  const denied = notifySupported() && Notification.permission === 'denied';
   const save = async (): Promise<void> => {
     if (await act(() => api.call('set_profile', { about }))) onClose();
   };
@@ -26,6 +29,9 @@ export function Profile({ onClose, onPassword }: { onClose: () => void; onPasswo
       <Field label="Avatar" hint="PNG or JPEG, up to 1 MB. Only signed-in participants can see it."><input type="file" disabled={readOnly} accept="image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
       {readOnly && <p className="muted">Your viewer role is read-only; an administrator can change your profile.</p>}
       {error && <p className="error" role="alert">{error}</p>}
+      <Field label="Notifications" hint={!notifySupported() ? 'This browser cannot show notifications. The tab title still counts what waits for you.' : denied ? 'Notifications are blocked for this site in your browser settings. The tab title still counts what waits for you.' : 'While this tab is in the background, your browser tells you of a new message: where it was written, never what. Only in this browser.'}>
+        <label className="check"><input type="checkbox" checked={notify} disabled={!notifySupported() || denied} onChange={(e) => { if (e.target.checked) void enableNotify().then(setNotify); else { disableNotify(); setNotify(false); } }} /> Notify me of new messages</label>
+      </Field>
       <div className="row"><button disabled={readOnly || !file} onClick={() => void upload()}>Upload avatar</button><span className="grow" /><button onClick={onPassword}>Change password</button></div>
     </div>
   </Modal>;

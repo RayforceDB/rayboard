@@ -13,6 +13,7 @@ import { NONE, projectsOf, useProject } from './projects';
 import { ProjectMark } from './marks';
 import { Profile } from './profile';
 import { unreadCount, useUnread } from './unread';
+import { conversationsOf, useTabSignal } from './tabsignal';
 import { listenToRoute, parseRoute, routeHash } from './route';
 import { ResizeHandle, panelWidth } from './resize';
 
@@ -122,6 +123,15 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
   // unread.reads too: without it, what was just read kept showing as unread until the next change on the board.
   }, [board, tick, current, act, open, unread.reads]);
   const shownCtx = useMemo((): Ctx | null => ctx === null ? null : readOnly ? { ...ctx, act: async () => { setError('Viewers have read-only access'); return false; } } : ctx, [ctx, readOnly]);
+  // The tab's title and, if wanted, notifications: what waits for this person (T-462). Above the early return: hooks.
+  const signal = useMemo(() => {
+    if (board === null) return null;
+    const names = new Map([...board.agents, ...board.people].map((a) => [a.id as string, a.name as string]));
+    const convs = conversationsOf(board, me.id, unread.unreadOf, (id) => names.get(id) ?? id);
+    const tasks = unreadCount(board.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled'), unread.reads, me.id);
+    return { convs, waiting: convs.reduce((n, c) => n + c.unread, 0) + tasks };
+  }, [board, unread.reads, me.id]);
+  useTabSignal(signal?.waiting ?? null, signal?.convs ?? null, useCallback((key: string) => open('chat', key), [open]));
   if (ctx === null || board === null) return failed ? <Broken what="The board could not be loaded" detail={failed} /> : null;
 
   const waiting = board.agents.filter((a) => a.status === 'pending').length;
