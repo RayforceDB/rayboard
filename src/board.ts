@@ -74,8 +74,11 @@ export interface Board {
   avatar(user: string): { bytes: Buffer; type: string; id: string } | null;
   /** Keeps an image pasted into text and answers where it is served (T-447). PNG, JPEG, GIF or WebP, told by its bytes. */
   putImage(actor: Actor, bytes: Buffer): { id: string; url: string; type: string; size: number };
-  /** An image's bytes and type, by its id; null when there is none. */
-  image(id: string): { bytes: Buffer; type: string } | null;
+  /**
+   * An image's bytes and type, for this reader: null when there is none, and when they may see none of the
+   * text it is in (its uploader may always). An image is as private as the most open place it was put.
+   */
+  image(actor: Actor, id: string): { bytes: Buffer; type: string } | null;
   setAgentAvatar(actor: Actor, user: string, bytes: Buffer, type: string): string;
   clearAgentAvatar(actor: Actor, user: string): void;
   /** An agent asks to join with the enrollment key. It gets a token at once and can do nothing until a person approves it. */
@@ -256,6 +259,24 @@ export function openBoard(options: BoardOptions): Board {
   const parties = (t: Row): string[] => [t.creator as string, t.assignee as string, t.reviewer as string, ...(t.participants as string).split(' ')].filter((id) => id !== '');
   /** A private task exists only for its parties and for the people overseeing the board. */
   const canSee = (actor: Actor, t: Row): boolean => isAdmin(actor) || t.private !== 1 || parties(t).includes(actor.id);
+  /** Whether this reader may see some text an image was put in (T-447): a message where they may read, or a task, its review or its evidence that they may see. */
+  const mayReadImage = (actor: Actor, id: string): boolean => {
+    const mark = `/api/images/${id}`;
+    const taskVisible = (taskId: unknown): boolean => { const t = store.get('tasks', String(taskId)); return t !== null && canSee(actor, t); };
+    for (const m of store.all('messages')) {
+      if (!String(m.body).includes(mark)) continue;
+      const chan = String(m.chan);
+      if (m.kind === 'channel') return true;
+      if (m.kind === 'dm' && (chan.split(':').includes(actor.id) || isAdmin(actor))) return true;
+      if (m.kind === 'task' && taskVisible(chan)) return true;
+    }
+    for (const t of store.all('tasks')) {
+      if ([t.body, t.outcome, t.next, t.result, t.dependency, t.check].some((x) => String(x ?? '').includes(mark)) && canSee(actor, t)) return true;
+    }
+    for (const r of store.all('reviews')) if ((String(r.note).includes(mark) || String(r.comment).includes(mark)) && taskVisible(r.task)) return true;
+    for (const e of store.all('evidence')) if (String(e.text).includes(mark) && taskVisible(e.task)) return true;
+    return false;
+  };
   /** The task, as far as this actor may know of it. `rev`, when given, is the revision the caller decided on. */
   function task(actor: Actor, ref: string, rev?: number): Row {
     const id = ref.toUpperCase();
@@ -1377,11 +1398,12 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       commit('image.added', actor.id, id, '', { images: [{ id, type, size: bytes.length, by: actor.id, created: now().toISOString() }] }, [], true);
       return { id, url: `/api/images/${id}`, type, size: bytes.length };
     },
-    image(id) {
+    image(actor, id) {
       if (!/^[a-f0-9]{48}$/.test(id)) return null;
       const row = store.get('images', id);
       const path = join(dirname(options.base), 'images', id);
       if (row === null || !existsSync(path)) return null;
+      if (row.by !== actor.id && !mayReadImage(actor, id)) return null;
       return { bytes: readFileSync(path), type: row.type as string };
     },
     avatar(user) {

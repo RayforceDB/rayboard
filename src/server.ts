@@ -358,12 +358,14 @@ export function startServer(o: ServerOptions): Server {
             if (actor instanceof Response) return actor;
             return json(200, { ok: true, actions: Object.fromEntries(Object.entries(board.actions).filter(([, a]) => a.who === 'any' || a.who === actor.kind).map(([name, a]) => [name, { description: a.description, params: a.params }])) });
           }
-          // Images pasted into text (T-447): only for those signed in or holding an agent token, and only by the
-          // unguessable id that the text they may read carries; served inert, never as anything but an image.
+          // Images pasted into text (T-447): only to their uploader and to whoever may read some text they are in,
+          // signed in or holding an agent token; served inert, never as anything but an image.
           const image = /^\/api\/images\/([a-f0-9]{48})$/.exec(path);
           if (image && req.method === 'GET') {
-            if (sessionOf(req) === null && (bearer(req) === null || board.agentOfToken(bearer(req)!) === null)) return refuse('unauthorized', 'sign in first');
-            const found = board.image(image[1]!);
+            const reader = who(req);
+            if (reader instanceof Response) return reader;
+            // Not there and not theirs to see answer alike: an id says nothing of a private conversation.
+            const found = board.image(reader, image[1]!);
             if (found === null) return refuse('not_found', 'no such image');
             return new Response(new Uint8Array(found.bytes), { headers: { ...baseHeaders, 'Content-Type': found.type, 'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Disposition': 'inline', 'Cache-Control': 'private, max-age=31536000, immutable' } });
           }
