@@ -32,8 +32,9 @@ export function ProjectMark({ name, size = 18 }: { name: string; size?: number }
   const { board } = useCtx();
   const hue = hueOf(name, board.tasks.map((t) => (t.project as string | undefined) ?? '').filter((p) => p !== ''));
   const text = initials(name);
+  // A solid tile with a white letter, like an app's icon; the light falls from the top.
   return (
-    <span className="project-mark" aria-hidden="true" style={{ width: size, height: size, fontSize: Math.round(size * (text.length > 1 ? 0.46 : 0.58)), background: `hsl(${hue} 62% 92%)`, color: `hsl(${hue} 55% 34%)`, borderColor: `hsl(${hue} 45% 80%)` }}>
+    <span className="project-mark" aria-hidden="true" style={{ width: size, height: size, fontSize: Math.round(size * (text.length > 1 ? 0.42 : 0.55)), background: `linear-gradient(160deg, hsl(${hue} 70% 58%), hsl(${hue} 62% 44%))` }}>
       {text}
     </span>
   );

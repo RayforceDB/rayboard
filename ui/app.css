@@ -452,19 +452,20 @@ tr.clickable:hover td { background: var(--bg); }
 
 /* Projects (T-20): a filter beside the search, one band of lanes per project, and a quiet tag on cards. */
 .project-filter { width: auto; max-width: 200px; }
-.project-tag { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); font-weight: 600; padding: 1px 9px; font-size: 12px; }
+.project-tag { background: var(--panel); border-color: var(--line); color: var(--text); font-weight: 600; padding: 1px 9px; font-size: 12px; }
 .project-swim { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
 .project-swim > h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0; }
 .project-swim > .kanban { min-height: 0; }
 .project-swim > .kanban .lane { min-height: 120px; }
 button.small { padding: 3px 10px; font-size: 13px; }
 .roster.projects button.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
-.roster.projects .n { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.roster.projects .n { margin-left: auto; font-size: 12px; font-weight: 600; line-height: 18px; padding: 0 7px; border-radius: 99px; background: var(--raised); border: 1px solid var(--line); color: var(--muted); font-variant-numeric: tabular-nums; }
+.roster.projects button.on .n { background: #fff; border-color: transparent; color: var(--accent-text); }
 .project-swim.unfiled > h2, .groups h3.unfiled, .roster.projects .unfiled { font-style: italic; font-weight: 500; color: var(--muted); }
 .project-swim.unfiled { border-top: 1px dashed var(--line-strong); padding-top: 14px; }
 
 /* Project marks and task numbers (T-20). */
-.project-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 6px; border: 1px solid; font-weight: 700; letter-spacing: -0.02em; line-height: 1; font-family: inherit; }
+.project-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 28%; color: #fff; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-family: inherit; text-shadow: 0 1px 1px rgb(0 0 0 / 0.18); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 1px 2px rgb(0 0 0 / 0.12); }
 .project-tag { gap: 5px; padding-left: 3px; }
 .project-tag .project-mark { border-radius: 4px; }
 .task-no { font-family: inherit; font-size: 13px; color: var(--muted); white-space: nowrap; }
