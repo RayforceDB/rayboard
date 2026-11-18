@@ -8,6 +8,7 @@ export function People() {
   const [adding, setAdding] = useState(false);
   const [invite, setInvite] = useState<{ key: string; role: string; expires: string } | null>(null);
   const [roleOf, setRoleOf] = useState<Row | null>(null);
+  const [leaving, setLeaving] = useState<Row | null>(null);
   const admin = me.role === 'admin';
   return (
     <>
@@ -22,7 +23,7 @@ export function People() {
             <div className="row"><Avatar id={p.id} size={44} /><b>{p.name}</b><span className="grow" /><span className="badge">{p.role}</span></div>
             {p.about && <p className="about">{p.about}</p>}
             <p className="muted about">{p.role === 'admin' ? 'Manages people, agents and all work.' : p.role === 'member' ? 'Collaborates on tasks, messages and reviews. Cannot manage access or see unrelated private work.' : 'Read-only access to shared work. Cannot manage access or see unrelated private work.'}</p>
-            {admin && <div className="row end"><button onClick={() => setRoleOf(p)}>Change role</button></div>}
+            {admin && <div className="row end">{p.id !== me.id && <button className="danger" onClick={() => setLeaving(p)}>Deactivate</button>}<button onClick={() => setRoleOf(p)}>Change role</button></div>}
           </article>
         ))}
       </div>
@@ -36,6 +37,14 @@ export function People() {
       {adding && <Invite onClose={() => setAdding(false)} onMade={(made) => { setAdding(false); setInvite(made); }} />}
       {invite && <Secret title={`Invitation · ${invite.role}`} value={`${location.origin}${location.pathname}#invite=${encodeURIComponent(invite.key)}`} onClose={() => setInvite(null)}><p className="muted">Send this link privately. The recipient chooses their own login and password. Valid until {new Date(invite.expires).toLocaleString()}.</p></Secret>}
       {roleOf && <Role user={roleOf} onClose={() => setRoleOf(null)} />}
+      {leaving && <Deactivate user={leaving} onClose={() => setLeaving(null)} />}
+      {admin && board.people.some((p) => p.status !== 'active') && (
+        <section className="panel">
+          <h3>Deactivated</h3>
+          <p className="muted">They cannot sign in. Their tasks, messages and history stay; their names are not reused.</p>
+          <p className="deactivated">{board.people.filter((p) => p.status !== 'active').map((p) => <span key={p.id as string} className="who none">{p.name as string}</span>)}</p>
+        </section>
+      )}
     </>
   );
 }
@@ -99,5 +108,17 @@ export function Github() {
         </>
       )}
     </section>
+  );
+}
+
+function Deactivate({ user, onClose }: { user: Row; onClose: () => void }) {
+  const { act } = useCtx();
+  return (
+    <Modal title={`Deactivate ${user.name}?`} onClose={onClose}>
+      <Form submit={`Deactivate ${user.name}`} danger onSubmit={async () => { if (await act(() => api.call('deactivate_person', { user: user.id }))) onClose(); }}>
+        <p>{user.name as string} is signed out everywhere at once and can no longer sign in. Their tasks, messages and history stay as they are, and the name is not given to anyone else.</p>
+        <p className="muted">This cannot be undone from the dashboard. The last administrator cannot be deactivated, and nobody can deactivate themselves.</p>
+      </Form>
+    </Modal>
   );
 }

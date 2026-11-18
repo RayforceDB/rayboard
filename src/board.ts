@@ -1148,6 +1148,8 @@ export function openBoard(options: BoardOptions): Board {
         const target = someone(p.user as string, 'person');
         const row = target.kind === 'user' ? store.get('users', target.id)! : bad('not_found', 'an agent is not a person');
         if (row.status !== 'active') bad('conflict', `${target.name} is not active`);
+        // Nobody locks themselves out with one click; another administrator does it.
+        if (row.id === actor.id) bad('conflict', 'you cannot deactivate yourself; ask another administrator');
         if (roleOf(row) === 'admin' && store.all('users').filter((u) => u.status === 'active' && roleOf(u) === 'admin').length === 1) bad('conflict', 'keep at least one active administrator');
         const next = { ...row, status: 'deactivated' };
         commit('person.deactivated', actor.id, row.id as string, actor.name + ' deactivated ' + row.name, { users: [next] });
