@@ -266,6 +266,24 @@ export class GithubApp {
     }
   }
 
+  /**
+   * Makes an issue's or pull request's rb:* labels say `want` and nothing else of the board's (T-446): only
+   * labels in `allowed` are ever taken off or put on, others are left alone. Answers the labels read back after.
+   */
+  async setLabel(repo: string, number: number, want: string, allowed: Set<string>): Promise<string[]> {
+    if (want !== '' && !allowed.has(want)) throw new Error(`${want} is not a label the board writes`);
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !Number.isSafeInteger(number)) throw new Error('not a repository and number');
+    const t = this.cached !== null && this.cached.until > this.now() ? this.cached : await this.token();
+    const auth = `token ${t.token}`;
+    const names = async (): Promise<string[]> => ((await (await this.call(`/repos/${repo}/issues/${number}/labels?per_page=100`, auth)).json()) as Record<string, unknown>[]).map((l) => String(l.name));
+    const have = await names();
+    for (const name of have) {
+      if (allowed.has(name) && name !== want) await this.call(`/repos/${repo}/issues/${number}/labels/${encodeURIComponent(name)}`, auth, { method: 'DELETE' });
+    }
+    if (want !== '' && !have.includes(want)) await this.call(`/repos/${repo}/issues/${number}/labels`, auth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ labels: [want] }) });
+    return names();
+  }
+
   /** What the installation was actually granted: its permissions and every repository it may read. */
   async grant(): Promise<Grant> {
     const t = await this.token();

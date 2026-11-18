@@ -13,6 +13,9 @@ const pem = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString();
 /** A stand-in for GitHub: answers by path, records what was asked. */
 function fakeGithub(o: { permissions?: Record<string, string>; repos?: { id: number; full_name: string; private: boolean }[]; open?: Record<string, unknown>[][]; closed?: Record<string, unknown>[] } = {}) {
   const asked: string[] = [];
+  /** Labels on each issue, by "<repo>#<number>"; a person's own label is there from the start. */
+  const labels = new Map<string, string[]>();
+  const refuse = { writes: false };
   const permissions = o.permissions ?? { metadata: 'read', issues: 'write', pull_requests: 'read', checks: 'read' };
   const repos = o.repos ?? [{ id: 101, full_name: 'RayforceDB/rayforce', private: false }];
   const open = o.open ?? [[]];
@@ -31,6 +34,16 @@ function fakeGithub(o: { permissions?: Record<string, string>; repos?: { id: num
       const half = Math.ceil(repos.length / 2);
       const slice = page === 1 ? repos.slice(0, half) : repos.slice(half);
       return reply({ repositories: slice }, page === 1 && repos.length > 1 ? `<https://api.github.com/installation/repositories?per_page=100&page=2>; rel="next"` : undefined);
+    }
+    const lab = /^\/repos\/(.+)\/issues\/(\d+)\/labels(?:\/(.+))?$/.exec(u.pathname);
+    if (lab) {
+      const key = `${lab[1]}#${lab[2]}`;
+      const have = labels.get(key) ?? ['bug'];
+      const method = init?.method ?? 'GET';
+      if (method !== 'GET' && refuse.writes) return new Response('{}', { status: 403 });
+      if (method === 'DELETE') labels.set(key, have.filter((l) => l !== decodeURIComponent(lab[3]!)));
+      if (method === 'POST') labels.set(key, [...have, ...(JSON.parse(String(init!.body)) as { labels: string[] }).labels]);
+      return reply((labels.get(key) ?? have).map((name) => ({ name })));
     }
     // Open pull requests whole, with their head and description; the head's check runs; the reviews (T-446).
     const pulls = /^\/repos\/(.+)\/pulls$/.exec(u.pathname);
@@ -52,7 +65,7 @@ function fakeGithub(o: { permissions?: Record<string, string>; repos?: { id: num
     }
     return new Response('{}', { status: 404 });
   };
-  return { fetch, asked };
+  return { fetch, asked, labels, refuse };
 }
 
 const issue = (n: number, title: string, extra: Record<string, unknown> = {}) =>
@@ -149,4 +162,41 @@ test('an App installed on no repository is flagged; repositories are otherwise n
   const permissions = { metadata: 'read', issues: 'write', pull_requests: 'read', checks: 'read' };
   expect(missing({ installation: '1', permissions, repos: [] })).toEqual(['the App is installed on no repositories: choose them in its installation on GitHub']);
   expect(missing({ installation: '1', permissions, repos: [{ id: '1', name: 'RayforceDB/rayforce', private: false }, { id: '2', name: 'RayforceDB/website', private: false }] })).toEqual([]);
+});
+
+test('a GitHub task\'s board status is written back as one rb: label, read back, and nothing else of anyone\'s is touched (T-446)', async () => {
+  const fake = fakeGithub({ open: [[issue(1, 'one')]] });
+  const { board, server, admin } = await setup(fake);
+  const anton = board.firstUser()!;
+  const started = (await (await fetch(`${server.url}/api/github/connect`, { method: 'POST', headers: admin, body: '{}' })).json()) as { url: string };
+  await fetch(`${server.url}/api/github/manifest?code=good-code&state=${new URL(started.url).searchParams.get('state')}`, { redirect: 'manual' });
+  await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
+  const t = ((await board.call(anton, 'list_tasks', { status: 'all' })) as { id: string; rev: number }[]).find(() => true)!;
+  const settle = async (want: (l: string[]) => boolean) => { for (let i = 0; i < 100 && !want(fake.labels.get('RayforceDB/rayforce#1') ?? ['bug']); i++) await Bun.sleep(20); return fake.labels.get('RayforceDB/rayforce#1') ?? ['bug']; };
+  // Nothing taken on the board yet: nothing written.
+  expect(fake.asked.some((a) => a.includes('/labels'))).toBe(false);
+  await board.call(anton, 'claim_task', { task: t.id });
+  expect(await settle((l) => l.includes('rb:in-progress'))).toEqual(['bug', 'rb:in-progress']);
+  const claimed = ((await board.call(anton, 'get_task', { task: t.id })) as { task: { rev: number } }).task;
+  await board.call(anton, 'move_task', { task: t.id, status: 'in_review', rev: claimed.rev });
+  expect(await settle((l) => l.includes('rb:review'))).toEqual(['bug', 'rb:review']);
+  // Each write is kept with what reading it back showed; a write that took is not news in the activity.
+  const writes = ((await board.call(anton, 'github_status', {})) as { writes: { want: string; result: string; detail: string }[] }).writes;
+  expect(writes.map((w) => [w.want, w.result])).toEqual([['rb:review', 'ok'], ['rb:in-progress', 'ok']]);
+  expect(writes[0]!.detail).toBe('read back: bug, rb:review');
+  // GitHub refusing the write is said, and the next reconciliation tries again.
+  fake.refuse.writes = true;
+  const current = ((await board.call(anton, 'get_task', { task: t.id })) as { task: { rev: number } }).task;
+  await board.call(anton, 'cancel_task', { task: t.id, rev: current.rev, reason: 'not ours' });
+  for (let i = 0; i < 100; i++) { const ev = (await board.call(anton, 'activity', { limit: 5 })) as { summary: string }[]; if (ev.some((e) => e.summary.includes('did not take'))) break; await Bun.sleep(20); }
+  expect(((await board.call(anton, 'activity', { limit: 5 })) as { summary: string }[]).some((e) => e.summary.includes('writing no label did not take'))).toBe(true);
+  fake.refuse.writes = false;
+  await fetch(`${server.url}/api/github/sync`, { method: 'POST', headers: admin, body: '{}' });
+  expect(await settle((l) => !l.includes('rb:review'))).toEqual(['bug']);
+});
+
+test('the App never writes a label outside the board\'s own', async () => {
+  const { GithubApp } = await import('../src/github');
+  const app = new GithubApp(tempDir(), fakeGithub().fetch);
+  await expect(app.setLabel('RayforceDB/rayforce', 1, 'priority:high', new Set(['rb:review']))).rejects.toThrow('not a label the board writes');
 });

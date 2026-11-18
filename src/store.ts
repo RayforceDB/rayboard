@@ -64,8 +64,12 @@ export const SCHEMA = {
       id: 'str', repo: 'str', repo_name: 'str', kind: 'sym', number: 'i64', url: 'str', title: 'str', state: 'sym', author: 'str', updated: 'ts', task: 'str',
       /** A pull request's head commit (sha), the issues it says it closes (numbers, space-separated), and what its checks and reviews come to (T-446). */
       sha: 'str', closes: 'str', checks: 'sym', review: 'sym',
+      /** The rb:* label the board last wrote and read back on GitHub; '' for none (T-446). */
+      label: 'str',
     },
   },
+  /** Every write the board made to GitHub and what reading it back showed (T-446): the only writes are rb:* labels. */
+  gh_writes: { keyed: false, columns: { id: 'str', ts: 'ts', item: 'str', want: 'str', result: 'sym', detail: 'str' } },
   /** A check run's latest outcome on a commit, by <repository id>#<sha>#<name>. */
   gh_checks: { keyed: true, columns: { id: 'str', repo: 'str', sha: 'str', name: 'str', status: 'sym', conclusion: 'sym', ts: 'ts' } },
   /** Each reviewer's latest verdict on a pull request, by <repository id>#<number>#<login>. */

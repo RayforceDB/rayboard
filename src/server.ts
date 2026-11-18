@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { GithubApp, manifest, missing, signed } from './github';
-import { BoardError, type Actor, type Board, type ErrorCode } from './board';
+import { ALLOWED_LABELS, BoardError, type Actor, type Board, type ErrorCode } from './board';
 import { mcp } from './mcp';
 
 // The one door to the board: the dashboard's API, the agents' API and MCP endpoint, the live feed
@@ -99,10 +99,37 @@ export function startServer(o: ServerOptions): Server {
         if (granted === undefined) continue;
         for await (const d of github.snapshot(granted, cutoff)) o.board.githubDelivery(d.id, d.event, d.payload);
       }
+      void syncLabels();
     } catch (err) {
       o.log(`github: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       syncing = false;
+    }
+  }
+  // Labels (T-446): a GitHub task's board status is written back as one rb:* label, then read back to be sure.
+  // Run after every task change and every reconciliation; one at a time, and a write that fails is tried again later.
+  let labelling = false;
+  let labelAgain = false;
+  async function syncLabels(): Promise<void> {
+    if (!github.connected) return;
+    if (labelling) { labelAgain = true; return; }
+    labelling = true;
+    try {
+      do {
+        labelAgain = false;
+        for (const t of o.board.githubLabelTargets().slice(0, 50)) {
+          try {
+            const after = await github.setLabel(t.repo, t.number, t.want, ALLOWED_LABELS);
+            const ours = after.filter((name) => ALLOWED_LABELS.has(name));
+            const ok = t.want === '' ? ours.length === 0 : ours.length === 1 && ours[0] === t.want;
+            o.board.githubLabelWritten(t.item, t.want, ok, ok ? `read back: ${after.join(', ') || 'no labels'}` : `read back ${ours.join(', ') || 'none'} instead`);
+          } catch (err) {
+            o.board.githubLabelWritten(t.item, t.want, false, err instanceof Error ? err.message : String(err));
+          }
+        }
+      } while (labelAgain);
+    } finally {
+      labelling = false;
     }
   }
   let setupCode = board.needsSetup() && o.unsafe === undefined ? randomBytes(12).toString('hex').replace(/(.{6})(?=.)/g, '$1-') : null;
@@ -424,6 +451,9 @@ export function startServer(o: ServerOptions): Server {
   // The feed says that something changed and what; the dashboard asks for what it shows through the API, as itself.
   // Each socket is told only while its session lasts, and of a private task only if its person may see it.
   board.onChange((entry) => {
+    // A task's status changing may change what its GitHub label should say.
+    // Any change on a task but GitHub's own (a review asked or decided moves it too); cheap when nothing differs.
+    if (/^T-\d+$/.test(entry.subject) && !entry.type.startsWith('github.') && !entry.type.startsWith('message.')) queueMicrotask(() => void syncLabels());
     const full = JSON.stringify({ seq: entry.seq, type: entry.type, subject: entry.subject, actor: entry.actor, quiet: entry.quiet === true });
     const bare = JSON.stringify({ seq: entry.seq, quiet: entry.quiet === true });
     for (const ws of sockets) {

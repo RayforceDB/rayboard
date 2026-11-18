@@ -101,6 +101,10 @@ export interface Board {
   onChange(listener: (entry: Entry) => void): void;
   /** Takes one signed GitHub webhook delivery (T-19): its receipt and what it changes are one write. */
   githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string };
+  /** GitHub items whose rb:* label does not say what their task's status is (T-446): what to write, and where. */
+  githubLabelTargets(): { item: string; repo: string; number: number; want: string }[];
+  /** Records a label write and what reading it back showed; a write that did not take is said in the activity. */
+  githubLabelWritten(item: string, want: string, ok: boolean, detail: string): void;
   /** Records what the App was actually granted and what is missing for the followed repositories (no secrets). */
   githubGrant(grant: { installation: string; permissions: Record<string, string>; repos: { id: string; name: string; private: boolean }[] }, problems: string[]): void;
   /** The repositories followed, by name and id when known. */
@@ -150,6 +154,15 @@ export interface BoardOptions {
   legacy?: string;
   now?: () => Date;
 }
+
+/**
+ * The only labels the board ever writes to GitHub (T-446), one per task status that says something there.
+ * An open task has none: nobody has taken it on the board yet.
+ */
+export const BOARD_LABELS: Record<string, string> = {
+  in_progress: 'rb:in-progress', changes_requested: 'rb:in-progress', in_review: 'rb:review', waiting: 'rb:blocked', blocked: 'rb:blocked', done: 'rb:done',
+};
+export const ALLOWED_LABELS = new Set(Object.values(BOARD_LABELS));
 
 /** Check run conclusions that mean the checks failed. */
 const FAILED = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure']);
@@ -1180,7 +1193,7 @@ export function openBoard(options: BoardOptions): Board {
         const file = join(dirname(options.base), 'github', 'app.json');
         let connected: unknown = null;
         try { if (existsSync(file)) { const a = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>; connected = { slug: a.slug, owner: a.owner, html_url: a.html_url }; } } catch { connected = null; }
-        return { repos: followed(), connected, app, deliveries: store.ask(`(select {from: gh_deliveries desc: ts take: 20})`) };
+        return { repos: followed(), connected, app, deliveries: store.ask(`(select {from: gh_deliveries desc: ts take: 20})`), writes: store.ask(`(select {from: gh_writes desc: ts take: 20})`) };
       },
     },
     reopen_task: {
@@ -1586,6 +1599,24 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     onChange: (listener) => void listeners.push(listener),
     githubDelivery,
     githubFollowed: () => followed(),
+    githubLabelTargets() {
+      return store.all('gh_items').flatMap((g) => {
+        const t = store.get('tasks', g.task as string);
+        if (t === null) return [];
+        // A cancelled task says nothing on GitHub: its label, if any, is taken off.
+        const want = BOARD_LABELS[t.status as string] ?? '';
+        return want === ((g.label as string | undefined) ?? '') ? [] : [{ item: g.id as string, repo: g.repo_name as string, number: Number(g.number), want }];
+      });
+    },
+    githubLabelWritten(item, want, ok, detail) {
+      const g = store.get('gh_items', item);
+      if (g === null) return;
+      const at = now().toISOString();
+      const short = String(g.repo_name).split('/').pop();
+      const write: Row = { id: `w_${seq + 1}`, ts: at, item, want, result: ok ? 'ok' : 'failed', detail: clip(detail, 500) };
+      commit('github.label', 'github', g.task as string, ok ? `GitHub ${short}#${g.number} labelled ${want || '(no rb: label)'}` : `GitHub ${short}#${g.number}: writing ${want || 'no label'} did not take: ${clip(detail, 200)}`,
+        ok ? { gh_items: [{ ...g, label: want }], gh_writes: [write] } : { gh_writes: [write] }, [], ok);
+    },
     githubGrant(grant, problems) {
       const at = now().toISOString();
       // What the App is installed on is what the board follows, by id, so a rename on GitHub keeps it.
