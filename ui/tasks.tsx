@@ -9,6 +9,7 @@ import { NONE, inProject, projectsOf, useProject } from './projects';
 import { GithubMark, ProjectMark, TaskNumber, useShownTitle } from './marks';
 import { imageHandlers } from './images';
 import { Sent } from './sent';
+import { TypingNote } from './typingnote';
 import { onAskOnlyUpdated, takeOnlyUpdated, updatedScope } from './updated';
 
 /** The lanes of the board. Waiting and blocked share one: both are work that stands still, and each card says which. */
@@ -583,7 +584,8 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       </div>
       {tab === 'discussion' && (
         <div className="reply">
-          <MentionInput value={comment} onChange={setComment} onSend={say} placeholder="Reply, @mention, or paste an image…" ariaLabel={`Comment on ${t.id}`} />
+          <TypingNote chan={t.id as string} />
+          <MentionInput value={comment} onChange={setComment} onSend={say} typingTo={t.id as string} placeholder="Reply, @mention, or paste an image…" ariaLabel={`Comment on ${t.id}`} />
         </div>
       )}
       {sub && <NewTask parent={t.id} onClose={() => setSub(false)} />}

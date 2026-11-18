@@ -67,6 +67,10 @@ export interface Board {
   userById(id: string): Actor | null;
   /** Whether this person may know of what happened to this subject: false only for a private task they may not see. */
   mayKnow(user: string, subject: string): boolean;
+  /** Whether this person or agent may read the conversation `chan` (a channel id, dm:a:b or a task id). */
+  mayRead(id: string, chan: string): boolean;
+  /** Told when someone starts or stops composing in a conversation (T-476): nothing of it is written anywhere. */
+  onTyping(listener: (t: { chan: string; who: string; composing: boolean }) => void): void;
   /** Saves this person's PNG/JPEG, then records its hash as part of the same board update. */
   setAvatar(user: string, bytes: Buffer, type: string): string;
   /** A bounded, authenticated image chosen by this person; its id changes when it is replaced. */
@@ -211,6 +215,8 @@ export function openBoard(options: BoardOptions): Board {
     }
   };
   const listeners: ((entry: Entry) => void)[] = [];
+  const typingListeners: ((t: { chan: string; who: string; composing: boolean }) => void)[] = [];
+  const typingTold = (t: { chan: string; who: string; composing: boolean }): void => { for (const l of typingListeners) l(t); };
   const seen = new Map<string, number>();
   const waiting = new Map<string, Set<() => void>>();
   /** A password hash is asynchronous: hold each invitation while it is being accepted so two requests cannot both use it. */
@@ -424,6 +430,8 @@ export function openBoard(options: BoardOptions): Board {
       // A direct message, or the thread of a private task, is told to those it is for and to nobody it happens to name.
       [...where.party, ...(where.closed === true ? [] : mentioned)].map((dest) => ({ dest, type: where.kind === 'channel' && !mentioned.includes(dest) ? 'message' : type, subject: where.chan, text: `${actor.name} in ${where.label}: ${clip(body, 400)}` })),
     );
+    // What was being written is written: whoever watched it being typed stops seeing that.
+    typingTold({ chan: where.chan, who: actor.id, composing: false });
     return message;
   }
 
@@ -662,6 +670,24 @@ export function openBoard(options: BoardOptions): Board {
       who: 'any', mutates: true,
       params: { to: str('#channel, @name or a task id.', 80, true), body: str('The message, plain text.', 20_000, true) },
       run: (actor, p) => post(actor, p.to as string, p.body as string),
+    },
+    typing: {
+      description: 'Tell those who can read a conversation that you are writing to it right now, as a person typing is shown. Call it only when you are about to post there, never on a turn that posts nothing; repeat it every few seconds while you write, and it lapses by itself 8 seconds after the last call. Posting, or `composing: false`, ends it. Nothing of it is kept or notified.',
+      who: 'any', mutates: false,
+      params: { to: str('#channel, @name, dm:… or a task id: where you are writing.', 80, true), composing: { type: 'boolean', description: 'true while writing (the default), false to stop.' } },
+      run(actor, p) {
+        // Read-only in the log, yet it speaks into a conversation: whoever may not post there may not type there.
+        if (actor.role === 'viewer') bad('forbidden', 'viewers have read-only access');
+        if (actor.kind === 'agent' && actor.status !== 'active') bad('paused', `you are ${actor.status} and can only read`);
+        const to = (p.to as string).trim();
+        if (to.startsWith('dm:')) {
+          const ids = to.slice(3).split(':');
+          if (ids.length !== 2 || !ids.includes(actor.id)) bad('forbidden', 'you can only write to your own direct messages');
+        }
+        const where = place(actor, to);
+        typingTold({ chan: where.chan, who: actor.id, composing: p.composing !== false });
+        return { ok: true, chan: where.chan };
+      },
     },
     create_channel: {
       description: 'Open a new shared channel.',
@@ -1542,9 +1568,21 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       const row = store.get('users', user);
       if (row === null || row.status !== 'active') return false;
       const who = actorOfUser(row);
+      // A direct conversation, even only that it moved, is for its two and the administrators.
+      if (subject.startsWith('dm:')) return subject.split(':').includes(who.id) || isAdmin(who);
       const t = TASK_ID.test(subject) ? store.get('tasks', subject) : null;
       return t === null || canSee(who, t);
     },
+    mayRead(id, chan) {
+      const user = store.get('users', id);
+      const agent = user === null ? store.get('agents', id) : null;
+      const who = user !== null ? (user.status === 'active' ? actorOfUser(user) : null) : agent !== null && agent.status !== 'revoked' ? actorOfAgent(agent) : null;
+      if (who === null) return false;
+      if (chan.startsWith('dm:')) return chan.split(':').includes(who.id) || isAdmin(who);
+      if (TASK_ID.test(chan)) { const t = store.get('tasks', chan); return t !== null && canSee(who, t); }
+      return store.all('channels').some((c) => c.id === chan);
+    },
+    onTyping: (listener) => void typingListeners.push(listener),
     userById(id) {
       const row = store.get('users', id);
       return row === null || row.status !== 'active' ? null : actorOfUser(row);

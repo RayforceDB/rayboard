@@ -1,3 +1,4 @@
+import { heardTyping, type Typing } from './typing';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type Row = Record<string, any>;
@@ -95,7 +96,10 @@ export function useBoard(onSignedOut: () => void): { board: Snapshot | null; tic
         refresh();
       };
       socket.onmessage = (event) => {
-        if ((JSON.parse(event.data as string) as { quiet: boolean }).quiet) return;
+        const frame = JSON.parse(event.data as string) as { quiet?: boolean; typing?: Typing };
+        // Someone writing somewhere this person may read: shown where it is, and no reason to look at the board again.
+        if (frame.typing !== undefined) { heardTyping(frame.typing); return; }
+        if (frame.quiet) return;
         // Changes often come several at once; one look after the last of them is enough.
         if (timer.current !== null) clearTimeout(timer.current);
         timer.current = setTimeout(refresh, 120);

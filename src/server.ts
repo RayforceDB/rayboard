@@ -50,6 +50,8 @@ export interface ServerOptions {
   renewFirstMs?: number;
   /** How often renewal is checked after that; daily unless a test says otherwise. */
   renewEveryMs?: number;
+  /** How long a report of someone writing lasts without being repeated; 8 seconds unless a test says otherwise. */
+  typingMs?: number;
 }
 
 export interface Server {
@@ -89,6 +91,33 @@ export function startServer(o: ServerOptions): Server {
   const cookieName = secure ? '__Host-rb' : 'rb';
   const sessions = new Map<string, { user: string; until: number; csrf: string }>();
   const sockets = new Set<import('bun').ServerWebSocket<{ user: string; key: string }>>();
+  // Who is writing where (T-476): in this process's memory only, never in the board. Each lasts TYPING_MS from
+  // its last report; a report, a post, a stop, the writer's last socket closing or the lapse ends it.
+  const TYPING_MS = o.typingMs ?? 8_000;
+  const typing = new Map<string, { chan: string; who: string; until: number }>();
+  const live = (ws: { data: { user: string; key: string } }): boolean =>
+    o.unsafe !== undefined || ((sessions.get(ws.data.key)?.until ?? 0) > Date.now() && board.userById(ws.data.user) !== null);
+  /** Tells it to the sockets of those who may read that conversation, and to nobody else. */
+  const tellTyping = (chan: string, who: string, until: number): void => {
+    const frame = JSON.stringify({ typing: { chan, who, until } });
+    for (const ws of sockets) {
+      if (ws.data.user === who || !live(ws) || !board.mayRead(ws.data.user, chan)) continue;
+      ws.send(frame);
+    }
+  };
+  board.onTyping(({ chan, who, composing }) => {
+    const key = `${chan}|${who}`;
+    if (composing) {
+      const until = Date.now() + TYPING_MS;
+      typing.set(key, { chan, who, until });
+      tellTyping(chan, who, until);
+    } else if (typing.delete(key)) {
+      tellTyping(chan, who, 0);
+    }
+  });
+  const stopTypingOf = (who: string): void => {
+    for (const [key, t] of typing) if (t.who === who) { typing.delete(key); tellTyping(t.chan, who, 0); }
+  };
   // GitHub (T-19): the App, the one-time states of a connection under way, and the reconciliation that keeps the board current.
   const github = new GithubApp(join(dirname(o.board.options.base), 'github'), o.githubFetch ?? fetch);
   const connecting = new Map<string, number>();
@@ -468,8 +497,16 @@ export function startServer(o: ServerOptions): Server {
       })());
     },
     websocket: {
-      open: (ws) => void sockets.add(ws),
-      close: (ws) => void sockets.delete(ws),
+      open: (ws) => {
+        sockets.add(ws);
+        // Someone arriving sees who is writing already, where they may read.
+        for (const t of typing.values()) if (t.who !== ws.data.user && board.mayRead(ws.data.user, t.chan)) ws.send(JSON.stringify({ typing: t }));
+      },
+      close: (ws) => {
+        sockets.delete(ws);
+        // A person whose last page closed is writing nowhere any more.
+        if (![...sockets].some((other) => other.data.user === ws.data.user)) stopTypingOf(ws.data.user);
+      },
       // The feed only tells; nothing is asked of it.
       message() {},
       maxPayloadLength: 1024,
@@ -515,6 +552,10 @@ export function startServer(o: ServerOptions): Server {
       ws.send(o.unsafe !== undefined || board.mayKnow(user, entry.subject) ? full : bare);
     }
   });
+  const typingSweep = setInterval(() => {
+    const at = Date.now();
+    for (const [key, t] of typing) if (t.until <= at) { typing.delete(key); tellTyping(t.chan, t.who, 0); }
+  }, Math.min(2_000, Math.max(50, TYPING_MS / 2)));
   const sweep = setInterval(() => {
     const at = Date.now();
     for (const [key, s] of sessions) if (s.until < at) sessions.delete(key);
@@ -531,6 +572,7 @@ export function startServer(o: ServerOptions): Server {
     },
     async stop() {
       clearInterval(sweep);
+      clearInterval(typingSweep);
       clearInterval(githubTimer);
       clearTimeout(githubFirst);
       if (renewTimer) clearInterval(renewTimer);

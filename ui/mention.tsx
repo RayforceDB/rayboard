@@ -1,3 +1,4 @@
+import { useReportTyping } from './typing';
 import React, { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Avatar, useCtx } from './kit';
 import type { Row } from './api';
@@ -19,8 +20,10 @@ export function completionAt(value: string, caret: number): { start: number; que
 export const mentionAt = (value: string, caret: number): { start: number; query: string } | null => { const found = completionAt(value, caret); return found?.kind === 'mention' ? { start: found.start, query: found.query } : null; };
 
 /** A picker fed by the caller's already authorized dashboard, never by private conversations. */
-export function MentionInput({ value, onChange, onSend, disabled, placeholder, ariaLabel, sendLabel = 'Send' }: {
+export function MentionInput({ value, onChange, onSend, disabled, placeholder, ariaLabel, sendLabel = 'Send', typingTo = null }: {
   value: string;
+  /** Where this composer writes, so that those reading it see that it is being written (T-476); null tells nobody. */
+  typingTo?: string | null;
   onChange: (value: string) => void;
   /** Called with the whole message: the text, and any images put in it as Markdown after it. Resolves to whether it went. */
   onSend: (message: string) => Promise<boolean> | boolean | void;
@@ -31,6 +34,7 @@ export function MentionInput({ value, onChange, onSend, disabled, placeholder, a
 }) {
   const { board, me, act } = useCtx();
   const input = useRef<HTMLTextAreaElement>(null);
+  useReportTyping(me.role === 'viewer' || disabled ? null : typingTo, value);
   // Pasted or dropped images wait beside the text as thumbnails; their Markdown is added only when the message goes.
   const [attached, setAttached] = useState<Attached[]>([]);
   const [uploading, setUploading] = useState(0);

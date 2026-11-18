@@ -7,6 +7,7 @@ import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
 import { Sent } from './sent';
+import { TypingNote } from './typingnote';
 
 export function Chat({ item }: { item: string }) {
   const { board, tick, act, open, me, name, unread, unreadOf, markRead } = useCtx();
@@ -113,11 +114,12 @@ export function Chat({ item }: { item: string }) {
           {current === '' && <Empty>Open a channel so agents and people have somewhere to talk.</Empty>}
           {current !== '' && messages.length === 0 && <Empty>Nothing here yet.</Empty>}
           {messages.map((m) => <div key={m.id} className={`msg ${m.author !== me.id && unread({...m,last:m.seq}) ? 'new-post' : ''}`}><div className="row"><Who id={m.author} /><time>{clock(m.ts)}</time></div><Prose>{m.body}</Prose></div>)}
+          <TypingNote chan={current} />
           <div ref={end} />
         </div>
         {current !== '' && canWrite && (
           <div className="composer">
-            <MentionInput value={text} onChange={setText} onSend={send} placeholder="Write a message; @name notifies, an image can be pasted. Ctrl+Enter sends." />
+            <MentionInput value={text} onChange={setText} onSend={send} typingTo={current} placeholder="Write a message; @name notifies, an image can be pasted. Ctrl+Enter sends." />
           </div>
         )}
       </section>
