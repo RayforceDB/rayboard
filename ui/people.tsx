@@ -69,6 +69,7 @@ export function Github() {
   const { act, tick } = useCtx();
   const [status, setStatus] = useState<Row | null>(null);
   const [owner, setOwner] = useState('RayforceDB');
+  const [plan, setPlan] = useState<Row | null>(null);
   const load = (): void => void api.call('github_status').then(setStatus, () => setStatus(null));
   useEffect(load, [tick]);
   if (status === null) return null;
@@ -104,10 +105,33 @@ export function Github() {
             <p className="muted small-print">To follow another repository, add it to the App's installation on GitHub; to stop, take it out there. The board picks the change up within ten minutes, or at once with Check now.</p>
           </div>
           {problems.length > 0 ? <ul className="error">{problems.map((p) => <li key={p}>{p}</li>)}</ul> : status.app ? <p className="muted">Permissions and repositories checked {new Date((status.app as Row).checked as string).toLocaleString()}.</p> : <p className="muted">Not checked yet.</p>}
-          <div className="row end"><button onClick={() => void act(async () => { await api.githubSync(); load(); })}>Check now</button></div>
+          <div className="row end"><button onClick={() => void act(async () => { setPlan(await api.call('reconcile_github', { dry_run: true }) as Row); })}>Close finished imports…</button><button onClick={() => void act(async () => { await api.githubSync(); load(); })}>Check now</button></div>
         </>
       )}
+      {plan !== null ? <Reconcile plan={plan} onClose={() => setPlan(null)} /> : null}
     </section>
+  );
+}
+
+/**
+ * T-479: tasks from GitHub left open although their item was merged or closed there, and nobody took them up.
+ * A dry run shows what would close; closing them is a second, deliberate step.
+ */
+function Reconcile({ plan, onClose }: { plan: Row; onClose: () => void }) {
+  const { act } = useCtx();
+  const done = plan.done as number;
+  const cancelled = plan.cancelled as number;
+  const skipped = plan.skipped as Row[];
+  if (done + cancelled === 0) {
+    return <Modal title="Close finished imports" onClose={onClose}><p>Nothing to close: every task whose GitHub item is merged or closed is already closed here, or someone took it up.</p>{skipped.length > 0 ? <p className="muted">{skipped.length} left to whoever took them up: {skipped.map((s) => s.task as string).join(' ')}</p> : null}</Modal>;
+  }
+  return (
+    <Modal title="Close finished imports" onClose={onClose}>
+      <Form submit={`Close ${done + cancelled} tasks`} onSubmit={async () => { if (await act(() => api.call('reconcile_github', {}))) onClose(); }}>
+        <p>{done} will be done (merged, or issue closed) and {cancelled} cancelled (pull request closed without merging). Each says why and links its GitHub item. Nothing is written to GitHub.</p>
+        {skipped.length > 0 ? <p className="muted">Left alone, because someone took them up: {skipped.map((s) => `${s.task as string} (${s.why as string})`).join(', ')}</p> : null}
+      </Form>
+    </Modal>
   );
 }
 

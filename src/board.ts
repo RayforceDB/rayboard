@@ -1244,6 +1244,41 @@ export function openBoard(options: BoardOptions): Board {
         return { repos: followed(), connected, app, deliveries: store.ask(`(select {from: gh_deliveries desc: ts take: 20})`), writes: store.ask(`(select {from: gh_writes desc: ts take: 20})`) };
       },
     },
+    reconcile_github: {
+      description: 'Close the tasks from GitHub whose issue or pull request is already merged or closed there and that nobody took up (no holder, no thread, no evidence): merged or closed is done, a pull request closed without merging is cancelled. With dry_run, only says what it would do.',
+      who: 'user', mutates: true, admin: true,
+      params: { dry_run: { type: 'boolean', description: 'Only count and list what would be closed; change nothing.' } },
+      run(actor, p) {
+        const dry = p.dry_run === true;
+        const close: { t: Row; url: string; status: 'done' | 'cancelled'; result: string }[] = [];
+        const skipped: { task: string; url: string; state: string; why: string }[] = [];
+        for (const g of store.all('gh_items')) {
+          const finished = finishedOnGithub(g);
+          const t = finished === null ? null : store.get('tasks', g.task as string);
+          if (t === null) continue;
+          const why = takenUp(t);
+          if (why === 'done' || why === 'cancelled') continue;
+          if (why !== '') skipped.push({ task: t.id as string, url: g.url as string, state: g.state as string, why });
+          else close.push({ t, url: g.url as string, ...finished! });
+        }
+        const num = (id: string): number => Number(id.slice(2));
+        close.sort((a, b) => num(a.t.id as string) - num(b.t.id as string));
+        skipped.sort((a, b) => num(a.task) - num(b.task));
+        // One change per task, each in the audit log with its reason; all of them one frame of the log.
+        if (!dry) {
+          for (const c of close) {
+            saveTask(actor, c.t, { status: c.status, result: c.result, dependency: '', check: '' }, c.status === 'done' ? 'task.completed' : 'task.cancelled', `${actor.name} closed ${c.t.id} as GitHub did: ${c.result}`, []);
+          }
+        }
+        return {
+          dry_run: dry,
+          done: close.filter((c) => c.status === 'done').length,
+          cancelled: close.filter((c) => c.status === 'cancelled').length,
+          closed: close.map((c) => ({ task: c.t.id, status: c.status, url: c.url })),
+          skipped,
+        };
+      },
+    },
     reopen_task: {
       description: 'Open a done or cancelled task again.',
       who: 'user', mutates: true, params: { task: TASK },
@@ -1283,6 +1318,27 @@ export function openBoard(options: BoardOptions): Board {
     return live.some((r) => r.state === 'commented') ? 'commented' : 'none';
   };
   const reviewOf = (repo: string, number: number): string => summarizeReviews(store.all('gh_reviews').filter((r) => r.repo === repo && Number(r.number) === number));
+  /**
+   * What an item finished on GitHub means for a task nobody took up (T-479): merged, or an issue closed, is done;
+   * a pull request closed without merging is cancelled. Null while it is open.
+   */
+  const finishedOnGithub = (g: { kind?: unknown; state?: unknown; url?: unknown }): { status: 'done' | 'cancelled'; result: string } | null => {
+    if (g.state === 'merged') return { status: 'done', result: `Merged on GitHub: ${g.url}` };
+    if (g.state !== 'closed') return null;
+    return g.kind === 'pr' ? { status: 'cancelled', result: `Closed on GitHub without merging: ${g.url}` } : { status: 'done', result: `Closed on GitHub: ${g.url}` };
+  };
+  /**
+   * Why the board may not close a task because its item finished on GitHub, or '' when it may: only a task still
+   * open that nobody holds, spoke in or attached evidence to. Anything someone took up is theirs to decide.
+   */
+  const takenUp = (t: Row): string => {
+    if (t.status !== 'open') return t.status as string;
+    if (t.assignee !== '') return 'held';
+    const id = { str: [t.id as string] };
+    if (store.ask(`(select {from: messages where: (in chan (at rb_q 'q0)) take: 1})`, id).length > 0) return 'has a thread';
+    if (store.ask(`(select {from: evidence where: (in task (at rb_q 'q0)) take: 1})`, id).length > 0) return 'has evidence';
+    return '';
+  };
 
   function githubDelivery(delivery: string, event: string, payload: Record<string, unknown>): { result: 'applied' | 'duplicate' | 'ignored'; task?: string } {
     if (broken) throw new Error('the log could not be written; the board accepts nothing until it is restarted');
@@ -1312,10 +1368,12 @@ export function openBoard(options: BoardOptions): Board {
       const label = `${short}#${item.number}`;
       if (known === null) {
         tasksMade += 1;
+        // An item already finished on GitHub comes in finished, not as open work nobody will ever decide (T-479).
+        const finished = finishedOnGithub(item);
         const t: Row = {
           id: `T-${tasksMade}`, title: clip(`${label} ${item.title}`, 200), body: `GitHub ${item.kind === 'pr' ? 'pull request' : 'issue'} ${item.url}
 Reported by @${item.author} on GitHub. The conversation with its author stays there.`,
-          status: 'open', creator: 'github', assignee: '', reviewer: '', parent: '', priority: 1, review: 'required', result: '', created: at, updated: at, seq: seq + 1,
+          status: finished?.status ?? 'open', creator: 'github', assignee: '', reviewer: '', parent: '', priority: 1, review: 'required', result: finished?.result ?? '', created: at, updated: at, seq: seq + 1,
           outcome: `Resolved on GitHub: ${item.url}`, next: '', participants: '', private: repo.private ? 1 : 0, rev: 1, dependency: '', check: '',
           // Its repository is its project; a person may move it elsewhere later, and GitHub never moves it back.
           project: projectName(short),
@@ -1323,7 +1381,8 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
         const head = item.head ?? '';
         const g: Row = { id: key, repo: repo.id, repo_name: repo.name, kind: item.kind, number: item.number, url: item.url, title: item.title, state: item.state, author: item.author, updated: item.updated, task: t.id,
           sha: head, closes: (item.closes ?? []).join(' '), checks: checksOf(repo.id, head), review: reviewOf(repo.id, item.number) };
-        commit('github.imported', 'github', t.id as string, `GitHub ${label} came in as ${t.id}: ${clip(item.title)}`, { tasks: [t], gh_items: [g], gh_deliveries: [receipt('applied')], ...settings });
+        const already = finished === null ? '' : `, already ${item.state} (${finished.status})`;
+        commit('github.imported', 'github', t.id as string, `GitHub ${label} came in as ${t.id}${already}: ${clip(item.title)}`, { tasks: [t], gh_items: [g], gh_deliveries: [receipt('applied')], ...settings });
         return { result: 'applied', task: t.id as string };
       }
       const t = store.get('tasks', known.task as string)!;
@@ -1332,13 +1391,20 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       const head = item.head ?? (known.sha as string | undefined) ?? '';
       const g: Row = { ...known, repo_name: repo.name, url: item.url, title: item.title, state: item.state, updated: item.updated,
         sha: head, closes: item.closes !== undefined ? item.closes.join(' ') : ((known.closes as string | undefined) ?? ''), checks: checksOf(repo.id, head), review: reviewOf(repo.id, item.number) };
-      // GitHub's state is shown beside the task, never written into it: its holder decides what closing there means here.
+      // GitHub's state is shown beside the task, and written into it only when nobody took the task up (T-479):
+      // then it is closed as GitHub closed it. A task someone holds or spoke in is theirs to decide; they are told.
       const changed = item.state !== known.state;
       const said = item.state === 'open' ? 'was reopened' : item.state === 'merged' ? 'was merged' : 'was closed';
+      const finished = changed ? finishedOnGithub(item) : null;
+      const closes = finished !== null && takenUp(t) === '';
       const put: Record<string, Row[]> = { gh_items: [g], gh_deliveries: [receipt('applied')], ...settings };
-      if (title !== t.title || (repo.private ? 1 : 0) !== t.private) put.tasks = [{ ...t, title, private: repo.private ? 1 : 0, updated: at, seq: seq + 1, rev: (t.rev as number) + 1 }];
-      commit('github.updated', 'github', t.id as string, `GitHub ${label}${changed ? ` ${said}` : ' changed'}`, put,
-        changed ? parties(t).map((dest) => ({ dest, type: 'github', subject: t.id as string, text: `GitHub ${label} ${said}: ${item.url}. Decide here whether ${t.id} is done or cancelled.` })) : []);
+      const change: Partial<Row> = {
+        ...(title !== t.title || (repo.private ? 1 : 0) !== t.private ? { title, private: repo.private ? 1 : 0 } : {}),
+        ...(closes ? { status: finished!.status, result: finished!.result } : {}),
+      };
+      if (Object.keys(change).length > 0) put.tasks = [{ ...t, ...change, updated: at, seq: seq + 1, rev: (t.rev as number) + 1 }];
+      commit('github.updated', 'github', t.id as string, `GitHub ${label}${changed ? ` ${said}` : ' changed'}${closes ? `; ${t.id} is ${finished!.status}` : ''}`, put,
+        changed && !closes ? parties(t).map((dest) => ({ dest, type: 'github', subject: t.id as string, text: `GitHub ${label} ${said}: ${item.url}. Decide here whether ${t.id} is done or cancelled.` })) : []);
       return { result: 'applied', task: t.id as string };
     }
     if (check !== null) {
@@ -1675,7 +1741,11 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
         if (t === null) return [];
         // A cancelled task says nothing on GitHub: its label, if any, is taken off.
         const want = BOARD_LABELS[t.status as string] ?? '';
-        return want === ((g.label as string | undefined) ?? '') ? [] : [{ item: g.id as string, repo: g.repo_name as string, number: Number(g.number), want }];
+        const has = (g.label as string | undefined) ?? '';
+        // An item finished on GitHub before the board ever labelled it gets no label now: closing its task for
+        // GitHub's sake is not news to write back (T-479).
+        if (has === '' && g.state !== 'open') return [];
+        return want === has ? [] :[{ item: g.id as string, repo: g.repo_name as string, number: Number(g.number), want }];
       });
     },
     githubLabelWritten(item, want, ok, detail) {
