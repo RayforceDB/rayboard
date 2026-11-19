@@ -62,7 +62,7 @@ export const api = {
 };
 
 /** The board as the dashboard shows it, asked for again whenever the server says something changed. `tick` grows with every change. */
-export function useBoard(onSignedOut: () => void): { board: Snapshot | null; tick: number; live: boolean; failed: string; refresh: () => void } {
+export function useBoard(onSignedOut: () => void): { board: Snapshot | null; tick: number; live: boolean; failed: string; refresh: () => void; refreshNow: () => void } {
   const [board, setBoard] = useState<Snapshot | null>(null);
   const [tick, setTick] = useState(0);
   const [live, setLive] = useState(false);
@@ -120,7 +120,15 @@ export function useBoard(onSignedOut: () => void): { board: Snapshot | null; tic
     };
   }, [refresh]);
 
-  return { board, tick, live, failed, refresh };
+  // After this page changed something itself: look at once rather than wait for the feed to say so, and drop the
+  // look the feed's notice of that same change already scheduled. Without it a click showed nothing for seconds.
+  const refreshNow = useCallback(() => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    refresh();
+  }, [refresh]);
+
+  return { board, tick, live, failed, refresh, refreshNow };
 }
 
 export function ago(iso: string, now = Date.now()): string {

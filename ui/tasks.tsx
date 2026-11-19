@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ago, api, clock, usd, when, type Row } from './api';
 import { Icon } from './icons';
-import { AgentStrip, Avatar, Badge, Empty, mayDecide, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
+import { AgentStrip, Avatar, Badge, Empty, Busy, mayDecide, Field, Form, Menu, Modal, PRIORITY, Prio, STATUS_LABEL, StatusPill, Who, useCtx } from './kit';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
 import { ResizeHandle, panelWidth } from './resize';
@@ -382,6 +382,21 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const [missing, setMissing] = useState('');
   const [comment, setComment] = useState('');
   const [verdict, setVerdict] = useState('');
+  // Approve and Request changes are one decision: while either is on its way, neither can be pressed again.
+  const [deciding, setDeciding] = useState(false);
+  const decide = (choice: 'approve' | 'request_changes') => async (): Promise<void> => {
+    setDeciding(true);
+    try {
+      // The answer carries the task and the decided review: shown at once, before the board is looked at again.
+      const ok = await act(async () => {
+        const got = (await api.call('review_task', { task: t.id, verdict: choice, comment: verdict })) as { task: Row; review: Row };
+        setD((was) => was === null || was.task.id !== got.task.id ? was : { ...was, task: got.task, reviews: was.reviews.map((r) => r.id === got.review.id ? got.review : r) });
+      });
+      if (ok) setVerdict('');
+    } finally {
+      setDeciding(false);
+    }
+  };
   const [to, setTo] = useState('');
   const [sub, setSub] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -472,8 +487,8 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 <>
                   <textarea value={verdict} {...imageHandlers(verdict, setVerdict, act)} onChange={(e) => setVerdict(e.target.value)} rows={2} placeholder="Your comment (required to request changes)" />
                   <div className="row end">
-                    <button onClick={() => void act(() => api.call('review_task', { task: t.id, verdict: 'request_changes', comment: verdict })).then((ok) => ok && setVerdict(''))}>Request changes</button>
-                    <button className="primary" onClick={() => void act(() => api.call('review_task', { task: t.id, verdict: 'approve', comment: verdict })).then((ok) => ok && setVerdict(''))}>Approve</button>
+                    <Busy run={decide('request_changes')} busy={deciding} label="Request changes" doing="Sending…" />
+                    <Busy className="primary" run={decide('approve')} busy={deciding} label="Approve" doing="Approving…" />
                   </div>
                 </>
               )}

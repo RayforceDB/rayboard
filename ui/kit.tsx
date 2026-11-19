@@ -226,6 +226,15 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   );
 }
 
+/**
+ * A button that runs `run` once per click: disabled while it runs, its label saying so, so a click is seen to be taken
+ * before the answer is back. `busy` holds it too while another button of the same choice runs.
+ */
+export function Busy({ run, busy, label, doing, className, title }: { run: () => Promise<unknown>; busy: boolean; label: string; doing: string; className?: string; title?: string }) {
+  const [mine, setMine] = useState(false);
+  return <button className={className} title={title} disabled={busy || mine} aria-busy={mine} onClick={() => { if (busy || mine) return; setMine(true); void run().finally(() => setMine(false)); }}>{mine ? doing : label}</button>;
+}
+
 /** A form whose submit runs `onSubmit` once, with the button disabled meanwhile. */
 export function Form({ onSubmit, submit, children, danger }: { onSubmit: () => Promise<unknown>; submit: string; children: ReactNode; danger?: boolean }) {
   const [busy, setBusy] = useState(false);

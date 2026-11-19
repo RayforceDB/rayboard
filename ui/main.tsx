@@ -86,7 +86,7 @@ function SignIn({ setup, onDone }: { setup: boolean; onDone: () => void }) {
 }
 
 function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; unsafe: boolean }) {
-  const { board, tick, live, failed } = useBoard(onSignedOut);
+  const { board, tick, live, failed, refreshNow } = useBoard(onSignedOut);
   const [route, setRoute] = useState(() => parseRoute(location.hash));
   useEffect(() => listenToRoute(window, setRoute), []);
   const [error, setError] = useState('');
@@ -103,12 +103,13 @@ function Shell({ me, onSignedOut, unsafe }: { me: Row; onSignedOut: () => void; 
     try {
       await work();
       setError('');
+      refreshNow();
       return true;
     } catch (e) {
       setError((e as Error).message);
       return false;
     }
-  }, []);
+  }, [refreshNow]);
   useEffect(() => {
     if (error === '') return;
     const t = setTimeout(() => setError(''), 8000);

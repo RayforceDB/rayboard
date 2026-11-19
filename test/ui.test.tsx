@@ -51,3 +51,25 @@ test('@ offers a participant picker at the caret, not inside an email', async ()
   expect(mentionAt('@alice finished', 6)).toEqual({ start: 0, query: 'alice' });
   expect(mentionAt('@alice finished', 15)).toBeNull();
 });
+test('a busy button says it is working and takes no second click until the answer is back', async () => {
+  const { Busy } = await import('../ui/kit');
+  let finish = (): void => {};
+  let runs = 0;
+  const run = (): Promise<void> => { runs++; return new Promise((done) => { finish = done; }); };
+  let tree: ReturnType<typeof create> | undefined;
+  await act(async () => { tree = create(<Busy run={run} busy={false} label="Approve" doing="Approving…" />); });
+  const button = () => tree!.root.findByType('button');
+  expect(button().children).toEqual(['Approve']);
+  await act(async () => { button().props.onClick(); });
+  expect(button().props.disabled).toBe(true);
+  expect(button().children).toEqual(['Approving…']);
+  await act(async () => { button().props.onClick(); });
+  expect(runs).toBe(1);
+  await act(async () => { finish(); });
+  expect(button().props.disabled).toBe(false);
+  expect(button().children).toEqual(['Approve']);
+  // Another button of the same choice on its way holds this one too.
+  await act(async () => { tree!.update(<Busy run={run} busy label="Approve" doing="Approving…" />); });
+  expect(button().props.disabled).toBe(true);
+  expect(button().children).toEqual(['Approve']);
+});
