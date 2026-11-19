@@ -65,6 +65,8 @@ export interface Board {
   /** The agent a token belongs to, or null. Marks the agent as seen. */
   agentOfToken(token: string): Actor | null;
   userById(id: string): Actor | null;
+  /** Someone asked the board something, or has it open (T-508): they are online, and when is kept. */
+  markSeen(id: string): void;
   /** Whether this person may know of what happened to this subject: false only for a private task they may not see. */
   mayKnow(user: string, subject: string): boolean;
   /** Whether this person or agent may read the conversation `chan` (a channel id, dm:a:b or a task id). */
@@ -217,7 +219,17 @@ export function openBoard(options: BoardOptions): Board {
   const listeners: ((entry: Entry) => void)[] = [];
   const typingListeners: ((t: { chan: string; who: string; composing: boolean; holdMs?: number; tab?: string }) => void)[] = [];
   const typingTold = (t: { chan: string; who: string; composing: boolean; holdMs?: number; tab?: string }): void => { for (const l of typingListeners) l(t); };
+  /**
+   * When each agent or person last asked the board anything (T-508). Kept in memory on every call; written to its row only
+   * when it moved on by more than a minute, and at close, so that a restart does not forget who was seen when.
+   */
   const seen = new Map<string, number>();
+  const SEEN_WRITE_MS = 60_000;
+  const seenStored = new Map<string, number>();
+  for (const a of [...store.all('agents'), ...store.all('users')]) {
+    const at = Date.parse((a.last_seen as string | undefined) ?? NEVER);
+    if (Number.isFinite(at) && at > Date.parse(NEVER)) { seen.set(a.id as string, at); seenStored.set(a.id as string, at); }
+  }
   const waiting = new Map<string, Set<() => void>>();
   /** A password hash is asynchronous: hold each invitation while it is being accepted so two requests cannot both use it. */
   const accepting = new Set<string>();
@@ -249,6 +261,28 @@ export function openBoard(options: BoardOptions): Board {
     return entry;
   }
 
+  /** Writes whoever's last call is not on their row yet: all of them, or only those a minute behind. */
+  function storeSeen(all: boolean): void {
+    const agents: Row[] = [];
+    const users: Row[] = [];
+    for (const [id, at] of seen) {
+      const had = seenStored.get(id) ?? 0;
+      if (at <= had || (!all && at - had < SEEN_WRITE_MS)) continue;
+      const agent = store.get('agents', id);
+      const row = agent ?? store.get('users', id);
+      if (row === null) continue;
+      (agent !== null ? agents : users).push({ ...row, last_seen: new Date(at).toISOString() });
+      seenStored.set(id, at);
+    }
+    // Not news and not audited: nobody is told, and the log keeps it only so a restart remembers it.
+    const put: Record<string, Row[]> = { ...(agents.length > 0 ? { agents } : {}), ...(users.length > 0 ? { users } : {}) };
+    if (agents.length + users.length > 0) commit('seen', 'board', agents.length + users.length === 1 ? ([...agents, ...users][0]!.id as string) : 'presence', '', put, [], true);
+  }
+  function markSeen(id: string): void {
+    seen.set(id, Date.now());
+    if (!broken && Date.now() - (seenStored.get(id) ?? 0) >= SEEN_WRITE_MS) storeSeen(false);
+  }
+
   // ---- reading ----
 
   const agentView = (a: Row): Row => {
@@ -258,7 +292,12 @@ export function openBoard(options: BoardOptions): Board {
     // between two calls; when it last asked is given too, so that working and gone can be told apart.
     return { ...rest, online: Date.now() - last < ONLINE_MS ? 1 : 0, last_seen: last === 0 ? '' : new Date(last).toISOString() };
   };
-  const userView = (u: Row): Row => ({ id: u.id!, name: u.name!, status: u.status!, role: roleOf(u), about: u.about ?? '', avatar: u.avatar ? `/api/avatars/${u.id}/${u.avatar}` : '', created: u.created! });
+  const userView = (u: Row): Row => {
+    // A person with the board open is online: their page's requests, and its live feed while open, mark them seen.
+    const last = seen.get(u.id as string) ?? 0;
+    return { id: u.id!, name: u.name!, status: u.status!, role: roleOf(u), about: u.about ?? '', avatar: u.avatar ? `/api/avatars/${u.id}/${u.avatar}` : '', created: u.created!,
+      online: Date.now() - last < ONLINE_MS ? 1 : 0, last_seen: last === 0 ? '' : new Date(last).toISOString() };
+  };
   const actorOfAgent = (a: Row): Actor => ({ id: a.id as string, kind: 'agent', name: a.name as string, status: a.status as string, reason: a.reason as string });
   const actorOfUser = (u: Row): Actor => ({ id: u.id as string, kind: 'user', name: u.name as string, status: u.status as string, reason: '', role: roleOf(u) });
 
@@ -608,7 +647,7 @@ export function openBoard(options: BoardOptions): Board {
             const timer = setTimeout(done, wait * 1000);
             set.add(done);
           });
-          seen.set(actor.id, Date.now());
+          markSeen(actor.id);
           found = read();
         }
         if (found.last > cursor0) advance(found.last);
@@ -1561,7 +1600,7 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       // Compared also when there is no such agent, so that an answer does not come sooner for an id that does not exist.
       const ok = sameHash(sha(token), (row?.token as string | undefined) || sha('nobody'));
       if (row === null || !ok || row.status === 'revoked') return null;
-      seen.set(row.id as string, Date.now());
+      markSeen(row.id as string);
       return actorOfAgent(row);
     },
     setAgentAvatar(actor, user, bytes, type) {
@@ -1657,6 +1696,7 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       return store.all('channels').some((c) => c.id === chan);
     },
     onTyping: (listener) => void typingListeners.push(listener),
+    markSeen,
     userById(id) {
       const row = store.get('users', id);
       return row === null || row.status !== 'active' ? null : actorOfUser(row);
@@ -1777,7 +1817,11 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       commit('github.grant', 'github', 'github.app', problems.length === 0 ? 'GitHub App grant checked' : `GitHub App grant checked: ${problems.join('; ')}`,
         { settings: [{ id: 'github.app', value }, { id: 'github.repos', value: JSON.stringify(list) }] }, [], problems.length === 0);
     },
-    close: () => store.close(),
+    close() {
+      // What was seen since the last write is kept, unless the log can no longer be written.
+      if (!broken) { try { storeSeen(true); } catch { /* closing anyway */ } }
+      store.close();
+    },
   };
   // What came from GitHub always belongs to a project: one that came in without (before projects
   // existed) is put under its repository's, once, when the board opens. A person may move it, not clear it.

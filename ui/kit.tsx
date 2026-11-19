@@ -116,6 +116,21 @@ export function StatusPill({ status }: { status: string }) {
 /** How long an agent may go without asking the board anything and still be at work: writing code takes minutes. */
 const AT_WORK_MS = 15 * 60_000;
 
+/** How long ago, short (T-508): just now, 5m, 2h, 3d. */
+export function ago(at: string, now: string): string {
+  const ms = Math.max(0, Date.parse(now) - Date.parse(at));
+  if (ms < 60_000) return 'just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return `${Math.floor(ms / 86_400_000)}d ago`;
+}
+
+/** When an agent last asked the board anything: a short suffix for the label, and the full moment for its tooltip. */
+export function lastSeen(a: Row, now: string): { suffix: string; title: string } {
+  if (!a.last_seen) return { suffix: '', title: 'Not heard from yet' };
+  return { suffix: ` · seen ${ago(a.last_seen as string, now)}`, title: `Last heard from ${new Date(a.last_seen as string).toLocaleString()}` };
+}
+
 /**
  * What an agent is doing now, as the strip above the board says it. Working means a task in progress and the
  * agent heard from lately; a task in progress whose agent has gone quiet says so instead of claiming work.
@@ -126,13 +141,20 @@ export function agentState(board: Snapshot, a: Row): { label: string; tone: 'goo
   if (a.status === 'revoked') return { label: 'Revoked', tone: 'off' };
   const quiet = a.last_seen ? Date.parse(board.now) - Date.parse(a.last_seen) : Infinity;
   const recent = a.online === 1 || quiet < AT_WORK_MS;
-  const seen = a.last_seen ? `Last heard from ${new Date(a.last_seen).toLocaleTimeString()}` : 'Not heard from since the board started';
+  // Whoever is not at work says when it was last heard from; the full moment is in the tooltip.
+  const { suffix, title: seen } = lastSeen(a, board.now);
   const doing = board.tasks.filter((t) => t.assignee === a.id && t.status === 'in_progress').map((t) => t.id as string);
   if (doing.length > 0) return recent
     ? { label: `Working on ${doing.slice(0, 2).join(', ')}${doing.length > 2 ? '…' : ''}`, tone: 'good', title: seen }
-    : { label: `Away · ${doing[0]} in progress`, tone: 'off', title: seen };
-  if (board.reviews.some((r) => r.reviewer === a.id)) return recent ? { label: 'Reviewing', tone: 'warn', title: seen } : { label: 'Away · review waiting', tone: 'off', title: seen };
-  return a.online ? { label: 'Available', tone: 'good', title: seen } : { label: 'Offline', tone: 'off', title: seen };
+    : { label: `Away · ${doing[0]} in progress${suffix}`, tone: 'off', title: seen };
+  if (board.reviews.some((r) => r.reviewer === a.id)) return recent ? { label: 'Reviewing', tone: 'warn', title: seen } : { label: `Away · review waiting${suffix}`, tone: 'off', title: seen };
+  return a.online ? { label: 'Available', tone: 'good', title: seen } : { label: `Offline${suffix}`, tone: 'off', title: seen };
+}
+
+/** Whether a person is here (T-508): online while their page is open, otherwise when they were last seen. */
+export function personState(board: Snapshot, p: Row): { label: string; tone: 'good' | 'off'; title: string } {
+  const { suffix, title } = lastSeen(p, board.now);
+  return p.online === 1 ? { label: 'Online', tone: 'good', title } : { label: `Offline${suffix}`, tone: 'off', title };
 }
 
 export function AgentStrip() {

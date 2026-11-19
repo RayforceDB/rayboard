@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { type CSSProperties } from 'react';
 import { api, clock, type Row } from './api';
-import { Avatar, Empty, Field, Form, Modal, Who, agentState, useCtx } from './kit';
+import { Avatar, Empty, Field, Form, Modal, Who, agentState, personState, useCtx } from './kit';
 import { Icon } from './icons';
 import { Prose } from './prose';
 import { MentionInput } from './mention';
@@ -87,7 +87,13 @@ export function Chat({ item }: { item: string }) {
           </button>
         ))}
         {people.length > 0 && <h3 className="label">People</h3>}
-        {people.map((p) => conv({ id: p.id as string, sub: p.role === 'admin' ? 'oversees the board' : p.role === 'viewer' ? 'viewer' : 'member' }))}
+        {people.map((p) => {
+          const person = board.people.find((x) => x.id === p.id) ?? p;
+          const st = personState(board, person);
+          const role = person.role === 'admin' ? 'oversees the board' : person.role === 'viewer' ? 'viewer' : 'member';
+          // Here: what they are. Gone: when they were last seen.
+          return conv({ id: p.id as string, sub: st.tone === 'good' ? role : st.label, tone: st.tone, title: st.title });
+        })}
         {agents.length > 0 && <h3 className="label">Agents</h3>}
         {agents.map((a) => { const st = agentState(board, a); return conv({ id: a.id as string, sub: st.label, tone: st.tone, title: st.title }); })}
         {watched.length > 0 && (

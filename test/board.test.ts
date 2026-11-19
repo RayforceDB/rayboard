@@ -170,7 +170,9 @@ test('the board is the same after a restart, and logins hold', async () => {
   board.close();
   board = await open();
   const after = (await board.call(admin, 'dashboard', {})) as Record<string, unknown>;
-  expect({ ...after, now: 0, agents: 0 }).toEqual({ ...(before as object), now: 0, agents: 0 });
+  // Closing may write when agents were last seen (T-508), which counts one more frame and changes nothing else.
+  expect((after.seq as number) - ((before as { seq: number }).seq)).toBeLessThanOrEqual(1);
+  expect({ ...after, now: 0, agents: 0, seq: 0 }).toEqual({ ...(before as object), now: 0, agents: 0, seq: 0 });
   expect(board.agentOfToken(token)!.name).toBe('aa');
   expect(await board.login('anton', 'correct horse battery')).toMatchObject({ name: 'anton' });
   expect(await board.login('anton', 'wrong password!')).toBeNull();
@@ -372,4 +374,27 @@ test('a log without its snapshot is refused instead of opening part of the board
   rmSync(`${base}.qdb`);
   await expect(open()).rejects.toThrow(/snapshot is missing/);
   board = await (async () => { const { writeFileSync } = await import('node:fs'); writeFileSync(`${base}.log`, ''); return open(); })();
+});
+
+test('when an agent or a person was last seen survives a restart, written at most once a minute while it works (T-508)', async () => {
+  const { actor, token } = await agent('worker');
+  const stored = (): string => board.store.get('agents', actor.id)!.last_seen as string;
+  const shown = async (): Promise<string> => ((await board.call(admin, 'list_agents', {})) as { agents: { id: string; last_seen: string }[] }).agents.find((a) => a.id === actor.id)!.last_seen;
+  // The first call is written at once; the next, moments later, is kept only in memory.
+  const first = stored();
+  expect(Date.parse(first)).toBeGreaterThan(Date.UTC(2020, 0));
+  await Bun.sleep(5);
+  board.agentOfToken(token);
+  expect(stored()).toBe(first);
+  const latest = await shown();
+  expect(Date.parse(latest)).toBeGreaterThan(Date.parse(first));
+  // A person is seen the same way, from their page's requests (the server calls markSeen).
+  board.markSeen(admin.id);
+  const person = ((await board.call(admin, 'list_agents', {})) as { people: { id: string; online: number; last_seen: string }[] }).people.find((p) => p.id === admin.id)!;
+  expect(person.online).toBe(1);
+  // Closing writes what memory holds, and the restarted board shows it before anyone says anything.
+  board.close(); board = await open();
+  expect(stored()).toBe(latest);
+  expect(await shown()).toBe(latest);
+  expect(board.store.get('users', admin.id)!.last_seen).toBe(person.last_seen);
 });

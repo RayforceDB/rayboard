@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type Row } from './api';
-import { Avatar, Field, Form, Modal, Secret, useCtx } from './kit';
+import { Avatar, Field, Form, Modal, Secret, personState, useCtx } from './kit';
 
 /** Human access: invitations are bearer secrets, never a shared account or password. */
 export function People() {
@@ -20,7 +20,7 @@ export function People() {
       <div className="cards">
         {board.people.filter((p) => p.status === 'active').map((p) => (
           <article key={p.id} className="agent">
-            <div className="row"><Avatar id={p.id} size={44} /><b>{p.name}</b><span className="grow" /><span className="badge">{p.role}</span></div>
+            <div className="row"><Avatar id={p.id} size={44} /><span className="who-state"><b>{p.name}</b><span className={`state ${personState(board, p).tone}`} title={personState(board, p).title}><i />{personState(board, p).label}</span></span><span className="grow" /><span className="badge">{p.role}</span></div>
             {p.about && <p className="about">{p.about}</p>}
             <p className="muted about">{p.role === 'admin' ? 'Manages people, agents and all work.' : p.role === 'member' ? 'Collaborates on tasks, messages and reviews. Cannot manage access or see unrelated private work.' : 'Read-only access to shared work. Cannot manage access or see unrelated private work.'}</p>
             {admin && <div className="row end">{p.id !== me.id && <button className="danger" onClick={() => setLeaving(p)}>Deactivate</button>}<button onClick={() => setRoleOf(p)}>Change role</button></div>}

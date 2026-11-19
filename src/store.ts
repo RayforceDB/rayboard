@@ -22,12 +22,12 @@ interface Shape {
 }
 
 export const SCHEMA = {
-  users: { keyed: true, columns: { id: 'str', name: 'str', pass: 'str', status: 'sym', role: 'sym', about: 'str', avatar: 'str', avatar_type: 'sym', created: 'ts' } },
+  users: { keyed: true, columns: { id: 'str', name: 'str', pass: 'str', status: 'sym', role: 'sym', about: 'str', avatar: 'str', avatar_type: 'sym', created: 'ts', last_seen: 'ts' } },
   /** Only hashes of one-time human invitations are stored; an expired timestamp means used, revoked or expired. */
   invites: { keyed: true, columns: { id: 'str', token: 'str', role: 'sym', created: 'ts', expires: 'ts', by: 'str' } },
   agents: {
     keyed: true,
-    columns: { id: 'str', name: 'str', kind: 'str', about: 'str', status: 'sym', reason: 'str', token: 'str', avatar: 'str', avatar_type: 'sym', budget: 'f64', created: 'ts', by: 'str' },
+    columns: { id: 'str', name: 'str', kind: 'str', about: 'str', status: 'sym', reason: 'str', token: 'str', avatar: 'str', avatar_type: 'sym', budget: 'f64', created: 'ts', by: 'str', last_seen: 'ts' },
   },
   settings: { keyed: true, columns: { id: 'str', value: 'str' } },
   channels: { keyed: true, columns: { id: 'str', name: 'str', topic: 'str', created: 'ts', by: 'str' } },

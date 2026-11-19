@@ -236,6 +236,7 @@ export function startServer(o: ServerOptions): Server {
       return null;
     }
     const user = board.userById(session.user);
+    if (user !== null) board.markSeen(user.id);
     return user === null ? null : { key, user, csrf: session.csrf };
   };
   /** A new session: the cookie that carries it, and the token the dashboard must send with every change. */
@@ -512,11 +513,13 @@ export function startServer(o: ServerOptions): Server {
     websocket: {
       open: (ws) => {
         sockets.add(ws);
+        board.markSeen(ws.data.user);
         // Someone arriving sees who is writing already, where they may read.
         for (const t of typing.values()) if (t.who !== ws.data.user && board.mayRead(ws.data.user, t.chan)) ws.send(JSON.stringify({ typing: { chan: t.chan, who: t.who, ms: Math.max(0, t.until - Date.now()) } }));
       },
       close: (ws) => {
         sockets.delete(ws);
+        board.markSeen(ws.data.user);
         // What this page was typing ends with it; a person whose last page closed is writing nowhere any more.
         if (![...sockets].some((other) => other.data.user === ws.data.user)) stopTypingOf(ws.data.user);
         else if (ws.data.tab !== '') for (const [key, t] of typing) if (t.who === ws.data.user && t.tab === ws.data.tab) { typing.delete(key); tellTyping(t.chan, t.who, 0); }
@@ -553,6 +556,8 @@ export function startServer(o: ServerOptions): Server {
   // a subject and may no longer know of it (a task made private) gets one bare word, so it looks again and drops it.
   const knew = new WeakMap<object, Set<string>>();
   board.onChange((entry) => {
+    // When someone was last seen is kept for restarts, not news: pages show it at their next look (T-508).
+    if (entry.type === 'seen') return;
     // A task's status changing may change what its GitHub label should say.
     // Any change on a task but GitHub's own (a review asked or decided moves it too); cheap when nothing differs.
     if (/^T-\d+$/.test(entry.subject) && !entry.type.startsWith('github.') && !entry.type.startsWith('message.')) queueMicrotask(() => void syncLabels());
@@ -582,6 +587,8 @@ export function startServer(o: ServerOptions): Server {
     const at = Date.now();
     for (const [key, s] of sessions) if (s.until < at) sessions.delete(key);
     for (const [state, until] of connecting) if (until < at) connecting.delete(state);
+    // A person whose page is open is there, reading, even when it asks nothing (T-508).
+    for (const ws of sockets) if ((sessions.get(ws.data.key)?.until ?? 0) > at || o.unsafe !== undefined) board.markSeen(ws.data.user);
   }, 60_000);
   const githubTimer = setInterval(() => void syncGithub(), 10 * 60_000);
   const githubFirst = setTimeout(() => void syncGithub(), 3_000);

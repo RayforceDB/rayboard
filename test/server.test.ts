@@ -53,6 +53,14 @@ test('the first person needs the setup code, and a session needs the dashboard\'
   expect((await post('/api/call/dashboard', {})).status).toBe(401);
 });
 
+test('a person signed in is online, and when they were last seen is kept on their row (T-508)', async () => {
+  const people = ((await (await post('/api/call/list_agents', {}, asUser())).json()) as { result: { people: { name: string; online: number; last_seen: string }[] } }).result.people;
+  const anton = people.find((p) => p.name === 'anton')!;
+  expect(anton.online).toBe(1);
+  expect(Date.parse(anton.last_seen)).toBeGreaterThan(Date.now() - 60_000);
+  expect(board.store.all('users').find((u) => u.name === 'anton')!.last_seen).not.toBe('2000-01-01T00:00:00.000Z');
+});
+
 test('an agent works through MCP with its token and is offered nothing meant for people', async () => {
   const made = (await (await post('/api/call/create_agent', { name: 'dev', about: 'writes code' }, asUser())).json()) as { result: { token: string } };
   token = made.result.token;
