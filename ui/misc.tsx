@@ -1,31 +1,63 @@
 import { useEffect, useState } from 'react';
 import { ago, api, clock, usd, type Row } from './api';
-import { Empty, Who, mayDecide, useCtx } from './kit';
+import { Busy, Empty, Who, mayDecide, useCtx } from './kit';
+import { imageHandlers } from './images';
+import { Prose } from './prose';
+
+function ReviewCard({ review }: { review: Row }) {
+  const { board, open, me, act } = useCtx();
+  const task = board.tasks.find((t) => t.id === review.task);
+  const [verdict, setVerdict] = useState('');
+  const [deciding, setDeciding] = useState(false);
+  // A named reviewer, or anyone allowed an open review, decides without opening the task drawer.
+  // The server checks this again; an administrator is not an implicit substitute for a named reviewer.
+  const may = me.role !== 'viewer' && mayDecide(review, me, board.tasks);
+  const decide = (choice: 'approve' | 'request_changes') => async (): Promise<void> => {
+    setDeciding(true);
+    try {
+      const ok = await act(() => api.call('review_task', { task: review.task, verdict: choice, comment: verdict }));
+      if (ok) setVerdict('');
+    } finally {
+      setDeciding(false);
+    }
+  };
+  return (
+    <article className="agent review-card">
+      <button className="link review-open" onClick={() => open('tasks', review.task)} title="Open the task and its discussion">
+        <div className="row"><code>{review.task}</code><b className="grow">{task?.title ?? review.title}</b><time>{ago(review.created, Date.parse(board.now))}</time></div>
+      </button>
+      <p className="muted byline"><span>by</span><Who id={review.requester} size={20} />{review.reviewer ? <><span>· asked of</span><Who id={review.reviewer} size={20} /></> : <span>· open to anyone but its author</span>}</p>
+      <Prose>{review.note}</Prose>
+      {may && (
+        <div className="review-decision">
+          <textarea aria-label={`Comment on ${review.task}`} value={verdict} {...imageHandlers(verdict, setVerdict, act)} onChange={(e) => setVerdict(e.target.value)} rows={2} maxLength={20000} placeholder="Your comment (required to request changes)" />
+          <div className="row end">
+            <Busy run={decide('request_changes')} busy={deciding} label="Request changes" doing="Sending…" />
+            <Busy className="primary" run={decide('approve')} busy={deciding} label="Approve" doing="Approving…" />
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
 
 export function Reviews() {
-  const { board, open, me } = useCtx();
-  const titles = new Map(board.tasks.map((t) => [t.id, t.title]));
+  const { board, me } = useCtx();
   // The sidebar counts the first group; the second is shown so that nothing waiting is hidden.
   const yours = board.reviews.filter((r) => mayDecide(r, me, board.tasks));
   const others = board.reviews.filter((r) => !mayDecide(r, me, board.tasks));
-  const card = (r: Row) => (
-          <article key={r.id} className="agent clickable" onClick={() => open('tasks', r.task)}>
-            <div className="row"><code>{r.task}</code><b className="grow">{titles.get(r.task)}</b><time>{ago(r.created, Date.parse(board.now))}</time></div>
-            <p className="muted byline"><span>by</span><Who id={r.requester} size={20} />{r.reviewer ? <><span>· asked of</span><Who id={r.reviewer} size={20} /></> : <span>· open to anyone but its author</span>}</p>
-            <pre className="prose clamp">{r.note}</pre>
-          </article>
-  );
+  const card = (r: Row) => <ReviewCard key={r.id} review={r} />;
   return (
     <>
       <header className="head"><h2>Reviews</h2></header>
       {board.reviews.length === 0 && <Empty>No review is waiting. When an agent finishes a task that needs review, it appears here.</Empty>}
       {board.reviews.length > 0 && <>
         <h3 className="reviews-group">Waiting for your verdict<span className="count-pill">{yours.length}</span></h3>
-        {yours.length === 0 ? <p className="muted">Nothing waits for you.</p> : <div className="cards">{yours.map(card)}</div>}
+        {yours.length === 0 ? <p className="muted">Nothing waits for you.</p> : <div className="cards reviews">{yours.map(card)}</div>}
         {others.length > 0 && <>
           <h3 className="reviews-group">Waiting for someone else<span className="count-pill">{others.length}</span></h3>
           <p className="muted">Asked of another reviewer, or of your own work.</p>
-          <div className="cards">{others.map(card)}</div>
+          <div className="cards reviews">{others.map(card)}</div>
         </>}
       </>}
     </>

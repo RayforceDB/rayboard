@@ -14,6 +14,7 @@
     "test": "bun test",
     "check": "tsc --noEmit",
     "test:browser": "bun run test/browser-navigation.ts",
+    "test:reviews": "bun run test/browser-reviews.ts",
     "test:resize": "bun run test/browser-resize.ts",
     "test:subscriptions": "bun run test/browser-subscriptions.ts",
     "test:typing": "bun run test/browser-typing.ts"
