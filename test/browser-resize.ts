@@ -9,7 +9,7 @@ if (!build.success) throw Error(build.logs.join('\n'));
 const files = new Map(build.outputs.map(f => [f.path.slice(out.length), f]));
 const user = { id: 'u_test', name: 'tester', role: 'member' };
 const task = { id: 'T-9', title: 'Resize fixture', status: 'open', creator: user.id, assignee: user.id, priority: 1, seq: 1, rev: 1, created: new Date().toISOString() };
-const board = { now: new Date().toISOString(), agents: [], people: [user], channels: [{ id: 'c_general', name: 'general' }], tasks: [task], reviews: [], dms: [{ chan: 'dm:a_morsel:a_morsel-member-client' }], enrollment: false, seq: 1 };
+const board = { now: new Date().toISOString(), agents: [], people: [user], channels: [{ id: 'c_general', name: 'general' }], tasks: [task], reviews: [], dms: [{ chan: 'dm:a_morsel:a_morsel-member-client', seq: 7, last: 7, last_author: 'a_morsel', recent: [5, 6, 7] }], enrollment: false, seq: 1 };
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const path = new URL(req.url).pathname;
   if (path === '/api/session') return Response.json({ ok: true, setup: false, user });
@@ -60,7 +60,11 @@ try {
   const label = watched.locator('.grow');
   await expect(label).toBeVisible();
   const labelBox = await label.boundingBox();
-  const countBox = await watched.locator('.muted').boundingBox();
+  // What ends the row now is its unread count (T-461), where a total in .muted used to be: the fixture's
+  // conversation has three messages this person has not read, so the count is there to measure against.
+  const count = watched.locator('.n');
+  await expect(count).toHaveText('3');
+  const countBox = await count.boundingBox();
   expect(labelBox!.x + labelBox!.width).toBeLessThanOrEqual(countBox!.x + 1);
   const textWidth = await label.evaluate(e => e.scrollWidth);
   expect(textWidth).toBeGreaterThanOrEqual(labelBox!.width);
