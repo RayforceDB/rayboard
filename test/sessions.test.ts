@@ -181,3 +181,25 @@ test('in unsafe mode nothing is kept', async () => {
   await fetch(`${server.url}/api/session`);
   expect(existsSync(join(dir, 'sessions.json'))).toBe(false);
 });
+
+test('a sign-in carries the stamp of the password it checked, and says nothing of it to the page', async () => {
+  const dir = tempDir();
+  const s = await boardWithAnton(dir);
+  const r = await post(s, '/api/login', { name: 'anton', password: 'correct horse battery' });
+  expect(JSON.stringify(await r.json())).not.toContain('stamp');
+  const found = (await board!.login('anton', 'correct horse battery'))!;
+  expect(found.stamp).toBe(board!.passwordStamp(found.id));
+  // What a session started from that check would hold no longer matches once the password has changed.
+  await board!.setPassword(found.id, 'correct horse battery', 'a brand new passphrase');
+  expect(board!.passwordStamp(found.id)).not.toBe(found.stamp);
+});
+
+test('changing what one says about oneself keeps one signed in, restart or not', async () => {
+  const dir = tempDir();
+  let s = await boardWithAnton(dir);
+  const anton = await signIn(s, 'anton', 'correct horse battery');
+  expect((await post(s, '/api/call/set_profile', { about: 'oversees the board' }, as(anton))).status).toBe(200);
+  expect((await sessionOf(s, anton.cookie)).user?.name).toBe('anton');
+  s = await restart(dir);
+  expect((await sessionOf(s, anton.cookie)).user?.name).toBe('anton');
+});

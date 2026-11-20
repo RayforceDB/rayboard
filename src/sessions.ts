@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 // People's sessions, kept beside the board so that restarting it, as an update does, signs nobody out.
 //
@@ -55,8 +56,18 @@ export function saveSessions(file: string | null, sessions: Map<string, Session>
   const next = `${file}.next`;
   try {
     rmSync(next, { force: true });
-    writeFileSync(next, JSON.stringify(Object.fromEntries(sessions)), { mode: 0o600 });
+    // On the disk before it takes the old one's place, and the place itself too: a sign-out just before the
+    // power goes must not come back as the file it replaced.
+    const fd = openSync(next, 'wx', 0o600);
+    try {
+      writeSync(fd, JSON.stringify(Object.fromEntries(sessions)));
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(next, file);
+    const dir = openSync(dirname(file), 'r');
+    try { fsyncSync(dir); } finally { closeSync(dir); }
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     try {

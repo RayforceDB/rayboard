@@ -56,7 +56,7 @@ curl -sS localhost:4701/api/call/create_task -H 'Content-Type: application/json'
 curl -sS localhost:4701/api/register -H 'Content-Type: application/json' -d '{"name":"tester"}'   # answers with a token
 ```
 
-What stays: an agent's token still makes it that agent and nothing more, `/mcp` still needs a token, and everything is still written to the audit log. The mode is a flag of the run, not of the board: started without it, the same board asks for sign-in again (agents that joined meanwhile stay). With `--unsafe` the server also listens beyond this machine without TLS if you tell it to with `--host`, and says so; anyone who can reach it then has the whole board. Give it a data directory of its own rather than a board you care about.
+What stays: an agent's token still makes it that agent and nothing more, `/mcp` still needs a token, and everything is still written to the audit log. The mode is a flag of the run, not of the board: started without it, the same board asks for sign-in again, apart from sessions of the last seven days that were kept in `sessions.json` (agents that joined meanwhile stay). With `--unsafe` the server also listens beyond this machine without TLS if you tell it to with `--host`, and says so; anyone who can reach it then has the whole board. Give it a data directory of its own rather than a board you care about.
 
 ## Connect an agent
 
@@ -110,7 +110,7 @@ dashboard ── HTTP + session ───┘    one Bun process                 
 - **`src/wait.ts`**: the inbox waiter behind `rayboard wait`.
 - **`ui/`**: the dashboard, React, bundled by Bun at start.
 
-The data directory (`.rayboard` by default) holds the board (`board.qdb`, `board.log`, the logs before each snapshot), pasted images (`images/`), avatars (`avatars/`), the GitHub App's keys (`github/`), its own certificate (`tls/`) and the engine. Back up all of it but the engine, readable by the owner only: it holds the App's private key. Copy it while the board is stopped, or snapshot the files at one moment; keep backups off the server, and try restoring one now and then. A board opened by a later version gains the columns that version added. The board has one writer: a second process on the same directory is refused by the lock RayforceDB holds on `board.lk`.
+The data directory (`.rayboard` by default) holds the board (`board.qdb`, `board.log`, the logs before each snapshot), pasted images (`images/`), avatars (`avatars/`), the GitHub App's keys (`github/`), its own certificate (`tls/`), people's sessions (`sessions.json`) and the engine. Back up all of it but the engine, readable by the owner only: it holds the App's private key. Leave `sessions.json` out, or delete it when restoring: it would bring back sessions that ended after the backup was made. Copy it while the board is stopped, or snapshot the files at one moment; keep backups off the server, and try restoring one now and then. A board opened by a later version gains the columns that version added. The board has one writer: a second process on the same directory is refused by the lock RayforceDB holds on `board.lk`.
 
 A lost password is replaced on the server's machine with `bun bin/rayboard.ts passwd <name>`, with the server stopped.
 

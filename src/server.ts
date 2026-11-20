@@ -94,8 +94,8 @@ export function startServer(o: ServerOptions): Server {
   const sessions = loadSessions(sessionsFile, o.log);
   const keepSessions = (): void => saveSessions(sessionsFile, sessions, o.log);
   /** Its days are over, its person is gone, or the password it was made under is no longer theirs. */
-  const ended = (s: { user: string; until: number; stamp: string }, at: number): boolean =>
-    s.until < at || board.userById(s.user) === null || !same(s.stamp, board.passwordStamp(s.user));
+  const ended = (s: { user: string; until: number; stamp: string }, at: number, user = board.userById(s.user)): boolean =>
+    s.until < at || user === null || !same(s.stamp, board.passwordStamp(s.user));
   /** Takes the sessions that have ended out of memory and out of the file. */
   const endSessions = (): void => {
     const at = Date.now();
@@ -249,7 +249,7 @@ export function startServer(o: ServerOptions): Server {
     const session = sessions.get(key);
     if (session === undefined) return null;
     const user = board.userById(session.user);
-    if (user === null || ended(session, Date.now())) {
+    if (user === null || ended(session, Date.now(), user)) {
       sessions.delete(key);
       keepSessions();
       return null;
@@ -258,10 +258,10 @@ export function startServer(o: ServerOptions): Server {
     return { key, user, csrf: csrfOf(token) };
   };
   /** A new session: the cookie that carries it, and the token the dashboard must send with every change. */
-  const startSession = (user: Actor): { cookie: string; csrf: string } => {
+  const startSession = (user: Actor, stamp = board.passwordStamp(user.id)): { cookie: string; csrf: string } => {
     const token = randomBytes(32).toString('base64url');
     const csrf = csrfOf(token);
-    sessions.set(sha(token), { user: user.id, until: Date.now() + SESSION_MS, stamp: board.passwordStamp(user.id) });
+    sessions.set(sha(token), { user: user.id, until: Date.now() + SESSION_MS, stamp });
     keepSessions();
     return { cookie: `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`, csrf };
   };
@@ -424,9 +424,11 @@ export function startServer(o: ServerOptions): Server {
               const started = startSession(user);
               return json(200, { ok: true, user, csrf: started.csrf }, { 'Set-Cookie': started.cookie });
             }
-            const user = await board.login(text(b.name), text(b.password, 1000));
-            if (user === null) return refuse('unauthorized', 'wrong name or password');
-            const started = startSession(user);
+            const found = await board.login(text(b.name), text(b.password, 1000));
+            if (found === null) return refuse('unauthorized', 'wrong name or password');
+            // The stamp of the password that was checked, not of the one there now: a password changed during the check ends this session.
+            const { stamp, ...user } = found;
+            const started = startSession(user, stamp);
             return json(200, { ok: true, user, csrf: started.csrf }, { 'Set-Cookie': started.cookie });
           }
           if (path === '/api/password' && req.method === 'POST') {
