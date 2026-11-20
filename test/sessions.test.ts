@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openBoard, type Board } from '../src/board';
 import { startServer, type Server } from '../src/server';
@@ -16,16 +16,24 @@ async function start(dir: string): Promise<Server> {
   server = startServer({ board, host: '127.0.0.1', port: 0, behindProxy: false, ui: dir, log: (line) => void logged.push(line) });
   return server;
 }
-async function restart(dir: string): Promise<Server> {
-  await server?.stop();
-  board?.close();
-  return start(dir);
-}
-afterEach(async () => {
+async function stopAll(): Promise<void> {
   await server?.stop();
   board?.close();
   server = null;
   board = null;
+}
+async function restart(dir: string, between?: (stopped: Board) => Promise<void>): Promise<Server> {
+  await stopAll();
+  if (between) {
+    // What the console does with the server stopped: the board opened on its own, then closed.
+    const alone = openBoard({ ray: await sharedRay(), base: join(dir, 'board') });
+    await between(alone);
+    alone.close();
+  }
+  return start(dir);
+}
+afterEach(async () => {
+  await stopAll();
   logged.length = 0;
 });
 
@@ -69,7 +77,7 @@ test('what is kept on disk cannot sign anyone in, and only the board may read it
   const token = anton.cookie.split('=')[1]!;
   expect(kept).not.toContain(token);
   expect(kept).not.toContain(anton.csrf);
-  expect(Object.values(JSON.parse(kept) as Record<string, { user: string }>).map((v) => Object.keys(v).sort())).toContainEqual(['until', 'user']);
+  expect(Object.values(JSON.parse(kept) as Record<string, { user: string }>).map((v) => Object.keys(v).sort())).toContainEqual(['stamp', 'until', 'user']);
   expect(statSync(file).mode & 0o777).toBe(0o600);
 });
 
@@ -106,4 +114,70 @@ test('ended and unreadable sessions are left behind, and the board says why', as
   s = await restart(dir);
   expect(logged.some((line) => line.includes('could not be read'))).toBe(true);
   expect((await post(s, '/api/login', { name: 'anton', password: 'correct horse battery' })).status).toBe(200);
+});
+
+test('a password reset on the console, with the server stopped, ends that person\'s sessions', async () => {
+  const dir = tempDir();
+  let s = await boardWithAnton(dir);
+  const anton = await signIn(s, 'anton', 'correct horse battery');
+  let fresh = '';
+  s = await restart(dir, async (alone) => { fresh = await alone.resetPassword('anton'); });
+  expect((await sessionOf(s, anton.cookie)).user).toBeNull();
+  // The one that ended is gone from the file as well, and the new password signs in.
+  expect(Object.keys(JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8')) as object)).toHaveLength(0);
+  await signIn(s, 'anton', fresh);
+});
+
+test('a deactivated person\'s sessions end, and leave the file', async () => {
+  const dir = tempDir();
+  let s = await boardWithAnton(dir);
+  const anton = await signIn(s, 'anton', 'correct horse battery');
+  const invited = (await (await post(s, '/api/call/invite_person', { role: 'member' }, as(anton))).json()) as { result: { key: string } };
+  expect((await post(s, '/api/join', { key: invited.result.key, name: 'mica', password: 'another long passphrase' })).status).toBe(200);
+  const mica = await signIn(s, 'mica', 'another long passphrase');
+  const id = ((await sessionOf(s, mica.cookie)).user as { id?: string } | null)?.id;
+  expect((await post(s, '/api/call/deactivate_person', { user: id }, as(anton))).status).toBe(200);
+  s = await restart(dir);
+  expect((await sessionOf(s, mica.cookie)).user).toBeNull();
+  expect(Object.values(JSON.parse(readFileSync(join(dir, 'sessions.json'), 'utf8')) as Record<string, { user: string }>).map((v) => v.user)).not.toContain(id);
+  expect((await sessionOf(s, anton.cookie)).user?.name).toBe('anton');
+});
+
+test('when the file cannot be written it is deleted, so a session that ended cannot come back', async () => {
+  const dir = tempDir();
+  let s = await boardWithAnton(dir);
+  const anton = await signIn(s, 'anton', 'correct horse battery');
+  const file = join(dir, 'sessions.json');
+  expect(existsSync(file)).toBe(true);
+  // A directory where the next file goes: writing it fails.
+  mkdirSync(`${file}.next/x`, { recursive: true });
+  expect((await post(s, '/api/logout', {}, as(anton))).status).toBe(200);
+  expect(existsSync(file)).toBe(false);
+  expect(logged.some((line) => line.includes('could not be written'))).toBe(true);
+  s = await restart(dir);
+  expect((await sessionOf(s, anton.cookie)).user).toBeNull();
+});
+
+test('a session in the file lasts no longer than seven days, whatever the file says', async () => {
+  const dir = tempDir();
+  let s = await boardWithAnton(dir);
+  const anton = await signIn(s, 'anton', 'correct horse battery');
+  const file = join(dir, 'sessions.json');
+  const kept = JSON.parse(readFileSync(file, 'utf8')) as Record<string, { until: number }>;
+  for (const k of Object.keys(kept)) kept[k]!.until = Date.now() + 365 * 86_400_000;
+  writeFileSync(file, JSON.stringify(kept));
+  s = await restart(dir);
+  expect((await sessionOf(s, anton.cookie)).user?.name).toBe('anton');
+  await post(s, '/api/logout', {}, as(anton));
+  await signIn(s, 'anton', 'correct horse battery');
+  for (const v of Object.values(JSON.parse(readFileSync(file, 'utf8')) as Record<string, { until: number }>)) expect(v.until).toBeLessThanOrEqual(Date.now() + 7 * 86_400_000);
+});
+
+test('in unsafe mode nothing is kept', async () => {
+  const dir = tempDir();
+  board = openBoard({ ray: await sharedRay(), base: join(dir, 'board') });
+  const operator = await board.createUser('operator', 'nobody knows this one');
+  server = startServer({ board, host: '127.0.0.1', port: 0, behindProxy: false, ui: dir, log: () => {}, unsafe: operator });
+  await fetch(`${server.url}/api/session`);
+  expect(existsSync(join(dir, 'sessions.json'))).toBe(false);
 });

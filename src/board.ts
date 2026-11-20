@@ -65,6 +65,8 @@ export interface Board {
   /** The agent a token belongs to, or null. Marks the agent as seen. */
   agentOfToken(token: string): Actor | null;
   userById(id: string): Actor | null;
+  /** A mark of this person's password as it is now, which says nothing of it: a session made under another one has ended. */
+  passwordStamp(id: string): string;
   /** Someone asked the board something, or has it open (T-508): they are online, and when is kept. */
   markSeen(id: string): void;
   /** Whether this person may know of what happened to this subject: false only for a private task they may not see. */
@@ -1700,6 +1702,10 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
     userById(id) {
       const row = store.get('users', id);
       return row === null || row.status !== 'active' ? null : actorOfUser(row);
+    },
+    passwordStamp(id) {
+      const row = store.get('users', id);
+      return row === null ? '' : sha(`rayboard session\0${String(row.pass ?? '')}`).slice(0, 32);
     },
     firstUser() {
       const row = store.all('users').find((u) => u.status === 'active');

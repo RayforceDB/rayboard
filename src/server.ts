@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { GithubApp, manifest, missing, signed } from './github';
 import { ALLOWED_LABELS, BoardError, type Actor, type Board, type ErrorCode } from './board';
 import { mcp } from './mcp';
-import { csrfOf, loadSessions, saveSessions } from './sessions';
+import { SESSION_MS, csrfOf, loadSessions, saveSessions } from './sessions';
 
 // The one door to the board: the dashboard's API, the agents' API and MCP endpoint, the live feed
 // for the dashboard, and the dashboard's files.
@@ -15,7 +15,6 @@ import { csrfOf, loadSessions, saveSessions } from './sessions';
 // page of another site can neither read nor guess. No GET changes anything.
 
 export const VERSION = '0.1.0';
-const SESSION_MS = 7 * 86_400_000;
 const BODY_MAX = 256 * 1024;
 const AVATAR_MAX = 1 * 1024 * 1024;
 const AGENT_AVATAR_MAX = 1_500_000;
@@ -94,6 +93,18 @@ export function startServer(o: ServerOptions): Server {
   const sessionsFile = o.unsafe === undefined ? join(dirname(o.board.options.base), 'sessions.json') : null;
   const sessions = loadSessions(sessionsFile, o.log);
   const keepSessions = (): void => saveSessions(sessionsFile, sessions, o.log);
+  /** Its days are over, its person is gone, or the password it was made under is no longer theirs. */
+  const ended = (s: { user: string; until: number; stamp: string }, at: number): boolean =>
+    s.until < at || board.userById(s.user) === null || !same(s.stamp, board.passwordStamp(s.user));
+  /** Takes the sessions that have ended out of memory and out of the file. */
+  const endSessions = (): void => {
+    const at = Date.now();
+    let any = false;
+    for (const [key, s] of sessions) if (ended(s, at)) any = sessions.delete(key) || any;
+    if (any) keepSessions();
+  };
+  // A password reset on the console, or a person deactivated, while the board was stopped.
+  endSessions();
   const sockets = new Set<import('bun').ServerWebSocket<{ user: string; key: string; tab: string }>>();
   // Who is writing where (T-476): in this process's memory only, never in the board. Each lasts TYPING_MS from
   // its last report; a report, a post, a stop, the writer's last socket closing or the lapse ends it.
@@ -236,19 +247,21 @@ export function startServer(o: ServerOptions): Server {
     const token = found.slice(cookieName.length + 1);
     const key = sha(token);
     const session = sessions.get(key);
-    if (session === undefined || session.until < Date.now()) {
-      if (sessions.delete(key)) keepSessions();
+    if (session === undefined) return null;
+    const user = board.userById(session.user);
+    if (user === null || ended(session, Date.now())) {
+      sessions.delete(key);
+      keepSessions();
       return null;
     }
-    const user = board.userById(session.user);
-    if (user !== null) board.markSeen(user.id);
-    return user === null ? null : { key, user, csrf: csrfOf(token) };
+    board.markSeen(user.id);
+    return { key, user, csrf: csrfOf(token) };
   };
   /** A new session: the cookie that carries it, and the token the dashboard must send with every change. */
   const startSession = (user: Actor): { cookie: string; csrf: string } => {
     const token = randomBytes(32).toString('base64url');
     const csrf = csrfOf(token);
-    sessions.set(sha(token), { user: user.id, until: Date.now() + SESSION_MS });
+    sessions.set(sha(token), { user: user.id, until: Date.now() + SESSION_MS, stamp: board.passwordStamp(user.id) });
     keepSessions();
     return { cookie: `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`, csrf };
   };
@@ -592,9 +605,7 @@ export function startServer(o: ServerOptions): Server {
   }, Math.min(2_000, Math.max(50, TYPING_MS / 2)));
   const sweep = setInterval(() => {
     const at = Date.now();
-    let ended = false;
-    for (const [key, s] of sessions) if (s.until < at) ended = sessions.delete(key) || ended;
-    if (ended) keepSessions();
+    endSessions();
     for (const [state, until] of connecting) if (until < at) connecting.delete(state);
     // A person whose page is open is there, reading, even when it asks nothing (T-508).
     for (const ws of sockets) if ((sessions.get(ws.data.key)?.until ?? 0) > at || o.unsafe !== undefined) board.markSeen(ws.data.user);
