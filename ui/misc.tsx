@@ -32,7 +32,7 @@ function ReviewCard({ review }: { review: Row }) {
         <div className="review-decision">
           <textarea aria-label={`Comment on ${review.task}`} value={verdict} {...imageHandlers(verdict, setVerdict, act)} onChange={(e) => setVerdict(e.target.value)} rows={2} maxLength={20000} placeholder="Your comment (required to request changes)" />
           <div className="row end">
-            <Busy run={decide('request_changes')} busy={deciding} label="Request changes" doing="Sending…" />
+            <Busy run={decide('request_changes')} busy={deciding} disabled={verdict.trim() === ''} label="Request changes" doing="Sending…" />
             <Busy className="primary" run={decide('approve')} busy={deciding} label="Approve" doing="Approving…" />
           </div>
         </div>

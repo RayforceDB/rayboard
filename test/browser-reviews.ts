@@ -59,10 +59,13 @@ try {
   expect(drawers).toEqual([]);
 
   const first = cards.first();
+  await expect(first.getByRole('button', { name: 'Request changes', exact: true })).toBeDisabled();
+  await expect(first.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+  await first.getByRole('textbox', { name: 'Comment on T-1' }).fill('Please cover the second option.');
+  await expect(first.getByRole('button', { name: 'Request changes', exact: true })).toBeEnabled();
   await first.getByRole('button', { name: 'Request changes', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('say in comment what has to change');
   await expect(cards).toHaveCount(12);
-  await first.getByRole('textbox', { name: 'Comment on T-1' }).fill('Please cover the second option.');
   hold = () => {};
   await first.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(first.getByRole('button', { name: 'Approving…', exact: true })).toBeDisabled();
@@ -100,7 +103,7 @@ try {
   await expect.poll(() => drawers.at(-1)).toBe('T-3');
   await expect(page.getByRole('complementary', { name: 'Task T-3', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
-  console.log('REVIEWS_BROWSER_PASS 12_cards full_notes inline_approve inline_changes busy_once error_kept task_link_optional');
+  console.log('REVIEWS_BROWSER_PASS 12_cards full_notes inline_approve inline_changes empty_comment_disabled busy_once error_kept task_link_optional');
 } finally {
   await browser?.close();
   server.stop(true);
