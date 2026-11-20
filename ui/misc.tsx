@@ -24,7 +24,7 @@ function ReviewCard({ review }: { review: Row }) {
   return (
     <article className="agent review-card">
       <button className="link review-open" onClick={() => open('tasks', review.task)} title="Open the task and its discussion">
-        <div className="row"><code>{review.task}</code><b className="grow">{task?.title ?? review.title}</b><time>{ago(review.created, Date.parse(board.now))}</time></div>
+        <span className="row"><code>{review.task}</code><b className="grow">{task?.title ?? review.task}</b><time>{ago(review.created, Date.parse(board.now))}</time></span>
       </button>
       <p className="muted byline"><span>by</span><Who id={review.requester} size={20} />{review.reviewer ? <><span>· asked of</span><Who id={review.reviewer} size={20} /></> : <span>· open to anyone but its author</span>}</p>
       <Prose>{review.note}</Prose>
