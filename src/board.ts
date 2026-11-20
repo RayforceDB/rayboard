@@ -65,6 +65,8 @@ export interface Board {
   /** The agent a token belongs to, or null. Marks the agent as seen. */
   agentOfToken(token: string): Actor | null;
   userById(id: string): Actor | null;
+  /** A mark of this person's password as it is now, which says nothing of it: a session made under another one has ended. */
+  passwordStamp(id: string): string;
   /** Someone asked the board something, or has it open (T-508): they are online, and when is kept. */
   markSeen(id: string): void;
   /** Whether this person may know of what happened to this subject: false only for a private task they may not see. */
@@ -95,8 +97,12 @@ export interface Board {
   createUser(name: string, password: string, role?: 'admin' | 'member' | 'viewer'): Promise<Actor>;
   /** Accepts a one-time invitation and chooses a unique login and password. */
   acceptInvite(key: string, name: string, password: string): Promise<Actor>;
-  /** The user this name and password belong to, or null. Takes the same time whether or not the name exists. */
-  login(name: string, password: string): Promise<Actor | null>;
+  /**
+   * The user this name and password belong to, or null. Takes the same time whether or not the name exists.
+   * `stamp` is the password stamp of what was checked: a session started from it ends if the password
+   * changed while the check was under way.
+   */
+  login(name: string, password: string): Promise<(Actor & { stamp: string }) | null>;
   /** Replaces a person's password after checking the one they have. Whoever holds sessions must end that person's. */
   setPassword(user: string, current: string, next: string): Promise<void>;
   /** The names of the people overseeing the board. */
@@ -147,6 +153,8 @@ const roleOf = (u: Row): NonNullable<Actor['role']> => u.role === 'member' || u.
 const isAdmin = (a: Actor): boolean => a.kind === 'user' && a.role === 'admin';
 
 const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+/** A mark of a person's password hash that says nothing of the password (Board.passwordStamp). */
+const stampOf = (row: Row): string => sha(`rayboard session\0${String(row.pass ?? '')}`).slice(0, 32);
 const sameHash = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const ident = (prefix: string): string => `${prefix}_${[...randomBytes(8)].map((b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('')}`;
 const secret = (): string => randomBytes(32).toString('base64url');
@@ -1701,6 +1709,10 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       const row = store.get('users', id);
       return row === null || row.status !== 'active' ? null : actorOfUser(row);
     },
+    passwordStamp(id) {
+      const row = store.get('users', id);
+      return row === null ? '' : stampOf(row);
+    },
     firstUser() {
       const row = store.all('users').find((u) => u.status === 'active');
       return row === undefined ? null : actorOfUser(row);
@@ -1745,7 +1757,7 @@ Reported by @${item.author} on GitHub. The conversation with its author stays th
       const row = store.all('users').find((u) => u.name === name.toLowerCase() && u.status === 'active');
       // A hash is verified either way: how long the answer takes says nothing about whether the name exists.
       const ok = await Bun.password.verify(password.slice(0, 200), (row?.pass as string | undefined) ?? DUMMY_HASH).catch(() => false);
-      return row !== undefined && ok ? actorOfUser(row) : null;
+      return row !== undefined && ok ? { ...actorOfUser(row), stamp: stampOf(row) } : null;
     },
     async setPassword(id, current, next) {
       const row = store.get('users', id) ?? bad('not_found', 'no such person');
